@@ -2,6 +2,11 @@
 
 This project tackles the challenge of tracking deformable microscopic organisms, specifically *Caenorhabditis elegans* (C. elegans), in video data. Unlike rigid objects, C. elegans can bend, elongate, overlap, and dramatically change shape between frames, which makes reliable tracking difficult for standard computer vision pipelines. Yet, accurate tracking is essential in biology, behavioral science, and neuroscience, where C. elegans is widely used as a model organism to study how environmental stimuli (e.g., chemical exposure) affect behavior and movement. Our goal is to build a robust tracking pipeline that not only follows the position of each worm, but also captures its body deformation over time—such as the motion of the head, body, and tail—enabling large-scale, quantitative behavioral analysis.
 
+<p align="center">
+  <img src="media/tracking_single.gif" alt="Single worm tracking" width="45%" />
+  <img src="media/tracking_multi.gif" alt="Multi-worm tracking" width="45%" />
+</p>
+
 <hr>
 
 <p align="center">
