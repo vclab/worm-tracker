@@ -15,6 +15,8 @@ This project tackles the challenge of tracking deformable microscopic organisms,
 - **Backend** (Python + FastAPI) that executes the (worm) tracking code; and
 - **Frontend** (React + Vite) that presents a browser-based interface for uploading video, viewing tracking performance, and downloading tracking results.  The tracking results can subsequently be used to analyze worm movement. 
 
+![GitHub release (latest by date)](https://img.shields.io/github/v/release/vclab/worm-tracker)
+
 ---
 
 ## Installation 
