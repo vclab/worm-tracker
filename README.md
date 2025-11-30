@@ -1,15 +1,23 @@
 # Worm Tracker Web App
 
-This project lets you upload a worm video, run automated tracking, and download all results (processed video + metadata) as a single ZIP package.
+This project tackles the challenge of tracking deformable microscopic organisms, specifically *Caenorhabditis elegans* (C. elegans), in video data. Unlike rigid objects, C. elegans can bend, elongate, overlap, and dramatically change shape between frames, which makes reliable tracking difficult for standard computer vision pipelines. Yet, accurate tracking is essential in biology, behavioral science, and neuroscience, where C. elegans is widely used as a model organism to study how environmental stimuli (e.g., chemical exposure) affect behavior and movement. Our goal is to build a robust tracking pipeline that not only follows the position of each worm, but also captures its body deformation over time—such as the motion of the head, body, and tail—enabling large-scale, quantitative behavioral analysis.
 
-It has two parts:
+<p align="center">
+  <video src="media/side_by_side.mp4" width="640" controls loop muted>
+    Your browser does not support the video tag.
+  </video>
+</p>
 
-- **Backend** (Python + FastAPI) — runs the worm-tracking code
-- **Frontend** (React + Vite) — website interface for uploading and viewing
+**The tracker app comprises two parts:**
+
+- **Backend** (Python + FastAPI) that executes the (worm) tracking code; and
+- **Frontend** (React + Vite) that presents a browser-based interface for uploading video, viewing tracking performance, and downloading tracking results.  The tracking results can subsequently be used to analyze worm movement. 
 
 ---
 
-## Prerequisites
+## Installation 
+
+### Prerequisites
 
 Install these first:
 
@@ -34,13 +42,9 @@ Install these first:
    - Linux: install via your package manager (`apt`, `dnf`, etc.).
    - Without FFmpeg, the app still works but some videos may not play in-browser.
 
----
+### Setup
 
-## Setup Instructions
-
-Follow these steps in order.
-
-### 1. Clone the repository
+#### 1. Clone the repository
 
 ```bash
 git clone https://github.com/AviShangari/Worm-Tracker-Web-App.git
@@ -49,9 +53,7 @@ cd Worm-Tracker-Web-App
 
 (Or unzip if you downloaded the ZIP.)
 
----
-
-### 2. Install backend (Python)
+#### 2. Install backend (Python)
 
 Create a virtual environment:
 
@@ -76,9 +78,7 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
----
-
-### 3. Start the backend server
+#### 3. Start the backend server
 
 From the project root (the main folder):
 
@@ -94,9 +94,7 @@ Uvicorn running on http://127.0.0.1:8000
 
 Leave this terminal running.
 
----
-
-### 4. Install frontend (React)
+#### 4. Install frontend (React)
 
 Open a **new terminal**, then:
 
@@ -105,9 +103,7 @@ cd frontend
 npm install
 ```
 
----
-
-### 5. Start the frontend
+#### 5. Start the frontend
 
 Still inside `frontend`:
 
@@ -125,7 +121,7 @@ Open that link in your browser.
 
 ---
 
-## How to Use
+## How to Use the Worm Tracker
 
 1. Open the site in your browser (default: [http://127.0.0.1:5173](http://127.0.0.1:5173))
 2. (Optional) Adjust parameters: **Keypoints**, **Area Threshold**, **Max Age**, **Output Name**
@@ -139,18 +135,14 @@ Open that link in your browser.
      - Keypoints (`.npz`)
 6. Use the **Run on another file** button to process a new video.
 
----
-
-## Where Files Are Saved (Locally)
+### Where Files Are Saved (Locally)
 
 - Uploaded raw videos → `app/uploads/`
 - Processed outputs → `app/outputs/<job_id>/`
   - Contains the processed MP4 (H.264), YAML, NPZ, and the packaged ZIP.
 - These folders are **gitignored** and created automatically at runtime.
 
----
-
-## Shutting Down The Web Application
+### Shutting Down The Web Application
 
 - Press `Ctrl + C` (Windows) or `Command + C` (Mac) on both backend and frontend terminals to terminate the program
 
@@ -188,7 +180,7 @@ Open that link in your browser.
 
 ## What’s Included vs. Ignored in Git
 
-- **Included:** source code (`app/`, `frontend/`), configs, `requirements.txt`, this README.
+- **Included:** source code (`app/`, `frontend/`), configs, `requirements.txt`, this README, and `mp4` files.
 - **Ignored:** `app/uploads/`, `app/outputs/`, `frontend/node_modules/`, build artifacts, and large media files.
 
----
+**IMPORTANT**: mp4 files are not ignored.

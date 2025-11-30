@@ -22,7 +22,6 @@ Thumbs.db
 
 # --- Generated / large media ---
 *.zip
-*.mp4
 *.avi
 *.mkv
 *.yaml
