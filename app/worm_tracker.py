@@ -147,7 +147,7 @@ def compute_motion_stats(keypoint_tracks, total_frames):
       - Sum all displacements across all keypoints and frames
       - Divide by (num_keypoints × num_frames) = average movement per keypoint per frame
 
-    Then compute mean and std across all worms.
+    Also computes separate head (keypoint 0) and tail (last keypoint) motion.
 
     Note: keypoint_tracks should already be filtered by persistence before calling.
     """
@@ -156,6 +156,8 @@ def compute_motion_stats(keypoint_tracks, total_frames):
 
     worm_ids = []  # Track actual worm IDs
     worm_motion_values = []  # One value per worm: avg movement per keypoint per frame
+    head_motion_values = []  # Head (keypoint 0) motion per worm
+    tail_motion_values = []  # Tail (last keypoint) motion per worm
 
     for worm_id, kp_list in keypoint_tracks.items():
         # kp_list structure: kp_list[keypoint_idx] = list of [y,x] per frame
@@ -182,13 +184,25 @@ def compute_motion_stats(keypoint_tracks, total_frames):
         num_transitions = num_frames - 1
         avg_movement = total_movement / (num_keypoints * num_transitions)
 
+        # Head motion (keypoint 0)
+        head_distances = distances[0]  # Shape: (num_frames-1,)
+        avg_head_motion = np.mean(head_distances)
+
+        # Tail motion (last keypoint)
+        tail_distances = distances[-1]  # Shape: (num_frames-1,)
+        avg_tail_motion = np.mean(tail_distances)
+
         worm_ids.append(worm_id)
         worm_motion_values.append(avg_movement)
+        head_motion_values.append(float(avg_head_motion))
+        tail_motion_values.append(float(avg_tail_motion))
 
     if not worm_motion_values:
         return None
 
     worm_motion_array = np.array(worm_motion_values)
+    head_motion_array = np.array(head_motion_values)
+    tail_motion_array = np.array(tail_motion_values)
 
     motion_stats = {
         "num_worms": len(worm_motion_values),
@@ -197,7 +211,19 @@ def compute_motion_stats(keypoint_tracks, total_frames):
         "min_motion": float(np.min(worm_motion_array)),
         "max_motion": float(np.max(worm_motion_array)),
         "worm_ids": worm_ids,
-        "per_worm_motion": worm_motion_values
+        "per_worm_motion": worm_motion_values,
+        # Head motion stats
+        "head_mean_motion": float(np.mean(head_motion_array)),
+        "head_std_motion": float(np.std(head_motion_array)),
+        "head_min_motion": float(np.min(head_motion_array)),
+        "head_max_motion": float(np.max(head_motion_array)),
+        "per_worm_head_motion": head_motion_values,
+        # Tail motion stats
+        "tail_mean_motion": float(np.mean(tail_motion_array)),
+        "tail_std_motion": float(np.std(tail_motion_array)),
+        "tail_min_motion": float(np.min(tail_motion_array)),
+        "tail_max_motion": float(np.max(tail_motion_array)),
+        "per_worm_tail_motion": tail_motion_values
     }
 
     return motion_stats
