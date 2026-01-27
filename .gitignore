@@ -8,6 +8,7 @@ venv/
 env/
 app/uploads/
 app/outputs/
+sample-data/
 
 # --- Node / React ---
 frontend/node_modules/
