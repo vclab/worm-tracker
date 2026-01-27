@@ -1,6 +1,7 @@
 import argparse
 import os
 import shutil
+import json
 import cv2
 import numpy as np
 from skimage.morphology import skeletonize
@@ -13,7 +14,6 @@ import yaml
 from datetime import datetime
 import subprocess
 
-FRAME_OUTPUT_DIR = "./Tracking/Output/worm_tracks"
 AREA_THRESHOLD = 50
 MAX_AGE = 35
 
@@ -34,19 +34,33 @@ def preprocess_frame(frame):
     )
     return binary
 
-def extract_worm_masks(binary, area_threshold):
+def extract_worm_masks(binary, area_threshold, edge_margin=5):
+    """
+    Extract worm masks from binary image.
+
+    Returns:
+        list of tuples: (mask, is_partial) where is_partial indicates
+        the worm touches a frame edge and may be only partially visible.
+    """
     num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary)
     masks = []
-    height = binary.shape[0]
+    height, width = binary.shape
     for i in range(1, num_labels):
         if stats[i, cv2.CC_STAT_AREA] >= area_threshold:
+            x = stats[i, cv2.CC_STAT_LEFT]
             y = stats[i, cv2.CC_STAT_TOP]
+            w = stats[i, cv2.CC_STAT_WIDTH]
             h = stats[i, cv2.CC_STAT_HEIGHT]
-            if y + h >= height - 5:
-                continue
+
+            # Check if worm touches any edge (partially visible)
+            is_partial = (x <= edge_margin or
+                          y <= edge_margin or
+                          x + w >= width - edge_margin or
+                          y + h >= height - edge_margin)
+
             mask = (labels == i).astype(np.uint8)
             mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
-            masks.append(mask)
+            masks.append((mask, is_partial))
     return masks
 
 def get_skeleton_points(mask, num_points):
@@ -86,31 +100,118 @@ def compute_cost_matrix(current_pts, prev_pts):
             cost[i, j] = 0.7 * centroid_dist + 0.3 * shape_dist
     return cost
 
-def draw_tracks(frame, worm_keypoints, worm_ids, keypoints_per_worm):
+def draw_tracks(frame, worm_keypoints, worm_ids, keypoints_per_worm, partial_flags=None):
+    """
+    Draw worm tracks on frame.
+
+    Args:
+        partial_flags: list of bools indicating if each worm is partially visible.
+                       Partial worms are drawn with a magenta outline indicator.
+    """
     keypoint_colors = [
         (255, 0, 0), (255, 64, 0), (255, 128, 0), (255, 191, 0), (255, 255, 0),
         (191, 255, 0), (128, 255, 0), (64, 255, 0), (0, 255, 0), (0, 255, 64),
         (0, 255, 128), (0, 255, 191), (0, 255, 255), (0, 191, 255), (0, 128, 255)
     ]
+    partial_color = (255, 0, 255)  # Magenta for partial worms
+
     for i, points in enumerate(worm_keypoints):
+        is_partial = partial_flags[i] if partial_flags else False
+
         for k, pt in enumerate(points):
             color = keypoint_colors[k] if k < len(keypoint_colors) else (255, 255, 255)
             x, y = int(pt[1]), int(pt[0])
+
+            if is_partial:
+                # Draw outer magenta ring for partial worms
+                cv2.circle(frame, (x, y), 6, partial_color, 2)
             cv2.circle(frame, (x, y), 4, color, -1)
+
             if k > 0:
                 pt1 = (int(points[k - 1][1]), int(points[k - 1][0]))
                 pt2 = (int(pt[1]), int(pt[0]))
                 cv2.line(frame, pt1, pt2, color, 2)
+
         worm_id = worm_ids[i]
-        cv2.putText(frame, f"ID {worm_id}", tuple(points[0][::-1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+        label = f"ID {worm_id}" + (" [P]" if is_partial else "")
+        cv2.putText(frame, label, tuple(points[0][::-1]), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    partial_color if is_partial else (255, 255, 255), 1)
     return frame
 
-def run_tracking(video_path, video_output_dir, keypoints_per_worm, area_threshold, max_age, show_video, output_name=None):
+def compute_motion_stats(keypoint_tracks, total_frames):
+    """
+    Compute motion statistics aggregated across all worms.
 
-    if os.path.exists(FRAME_OUTPUT_DIR):
-        shutil.rmtree(FRAME_OUTPUT_DIR)
-    os.makedirs(FRAME_OUTPUT_DIR, exist_ok=True)
-    os.makedirs(video_output_dir, exist_ok=True)
+    For each worm:
+      - Compute displacement of each keypoint between consecutive frames
+      - Sum all displacements across all keypoints and frames
+      - Divide by (num_keypoints × num_frames) = average movement per keypoint per frame
+
+    Then compute mean and std across all worms.
+
+    Note: keypoint_tracks should already be filtered by persistence before calling.
+    """
+    if not keypoint_tracks:
+        return None
+
+    worm_ids = []  # Track actual worm IDs
+    worm_motion_values = []  # One value per worm: avg movement per keypoint per frame
+
+    for worm_id, kp_list in keypoint_tracks.items():
+        # kp_list structure: kp_list[keypoint_idx] = list of [y,x] per frame
+        # Shape when converted: (num_keypoints, num_frames, 2)
+        num_keypoints = len(kp_list)
+        num_frames = len(kp_list[0]) if kp_list else 0
+
+        if num_frames < 2:
+            continue
+
+        # Convert to numpy: (num_keypoints, num_frames, 2)
+        keypoints = np.array(kp_list)
+
+        # Compute displacement for each keypoint between consecutive frames
+        # Shape: (num_keypoints, num_frames-1, 2)
+        displacements = np.diff(keypoints, axis=1)
+
+        # Euclidean distance for each keypoint at each frame transition
+        # Shape: (num_keypoints, num_frames-1)
+        distances = np.linalg.norm(displacements, axis=2)
+
+        # Sum all movements, divide by (num_keypoints × num_frame_transitions)
+        total_movement = np.sum(distances)
+        num_transitions = num_frames - 1
+        avg_movement = total_movement / (num_keypoints * num_transitions)
+
+        worm_ids.append(worm_id)
+        worm_motion_values.append(avg_movement)
+
+    if not worm_motion_values:
+        return None
+
+    worm_motion_array = np.array(worm_motion_values)
+
+    motion_stats = {
+        "num_worms": len(worm_motion_values),
+        "mean_motion": float(np.mean(worm_motion_array)),
+        "std_motion": float(np.std(worm_motion_array)),
+        "min_motion": float(np.min(worm_motion_array)),
+        "max_motion": float(np.max(worm_motion_array)),
+        "worm_ids": worm_ids,
+        "per_worm_motion": worm_motion_values
+    }
+
+    return motion_stats
+
+def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max_age, show_video, output_name=None, keep_frames=False, persistence=50):
+    # Create output subfolder: {video_basename}_{timestamp}
+    video_basename = os.path.splitext(os.path.basename(video_path))[0]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    job_folder = f"{video_basename}_{timestamp}"
+    job_output_dir = os.path.join(output_dir, job_folder)
+    frames_dir = os.path.join(job_output_dir, "frames")
+
+    os.makedirs(job_output_dir, exist_ok=True)
+    os.makedirs(frames_dir, exist_ok=True)
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
@@ -121,21 +222,26 @@ def run_tracking(video_path, video_output_dir, keypoints_per_worm, area_threshol
     track_memory = []
     next_id = 0
     keypoint_tracks = {}
+    partial_worm_ids = set()  # Track worms that have ever been partial (touched edge)
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    for _ in tqdm(range(total_frames), desc="Processing frames", unit="frame"):
+    pbar = tqdm(total=total_frames, desc="Processing frames", unit="frame")
+    while True:
         ret, frame = cap.read()
         if not ret:
             break
+        pbar.update(1)
 
         binary = preprocess_frame(frame)
-        masks = extract_worm_masks(binary, area_threshold)
+        mask_data = extract_worm_masks(binary, area_threshold)
         current_keypoints = []
+        current_partial_flags = []
 
-        for mask in masks:
+        for mask, is_partial in mask_data:
             keypoints = get_skeleton_points(mask, keypoints_per_worm)
             if keypoints is not None:
                 current_keypoints.append(keypoints)
+                current_partial_flags.append(is_partial)
 
         current_ids = [-1] * len(current_keypoints)
 
@@ -168,15 +274,19 @@ def run_tracking(video_path, video_output_dir, keypoints_per_worm, area_threshol
                     next_id += 1
                 else:
                     current_keypoints[j] = None
+                    current_partial_flags[j] = None
 
         filtered_ids = []
         filtered_keypoints = []
-        for cid, kp in zip(current_ids, current_keypoints):
+        filtered_partial_flags = []
+        for cid, kp, pf in zip(current_ids, current_keypoints, current_partial_flags):
             if kp is not None and cid != -1:
                 filtered_ids.append(cid)
                 filtered_keypoints.append(kp)
+                filtered_partial_flags.append(pf)
         current_ids = filtered_ids
         current_keypoints = filtered_keypoints
+        current_partial_flags = filtered_partial_flags
 
         updated_tracks = []
         for tid, kps in zip(current_ids, current_keypoints):
@@ -188,42 +298,57 @@ def run_tracking(video_path, video_output_dir, keypoints_per_worm, area_threshol
 
         track_memory = updated_tracks
 
-        for worm_id, keypoints in zip(current_ids, current_keypoints):
+        for worm_id, keypoints, is_partial in zip(current_ids, current_keypoints, current_partial_flags):
             if worm_id not in keypoint_tracks:
                 keypoint_tracks[worm_id] = [[] for _ in range(keypoints_per_worm)]
             for i in range(keypoints_per_worm):
                 keypoint_tracks[worm_id][i].append(keypoints[i])
+            # Mark worm as partial if it ever touches an edge
+            if is_partial:
+                partial_worm_ids.add(worm_id)
 
-        annotated = draw_tracks(frame.copy(), current_keypoints, current_ids, keypoints_per_worm)
-        cv2.imwrite(os.path.join(FRAME_OUTPUT_DIR, f"frame_{frame_idx:04d}.png"), annotated)
+        annotated = draw_tracks(frame.copy(), current_keypoints, current_ids, keypoints_per_worm, current_partial_flags)
+        cv2.imwrite(os.path.join(frames_dir, f"frame_{frame_idx:04d}.png"), annotated)
         frame_idx += 1
 
+    pbar.close()
     cap.release()
 
-    base_name = os.path.splitext(os.path.basename(video_path))[0]
     if output_name and not output_name.lower().endswith(".mp4"):
         output_name += ".mp4"
 
-    output_video_filename = output_name if output_name else f"{base_name}.mp4"
-    output_video_path = os.path.join(video_output_dir, output_video_filename)
+    output_video_filename = output_name if output_name else f"{video_basename}_tracking.mp4"
+    output_video_path = os.path.join(job_output_dir, output_video_filename)
 
-    image_files = sorted([f for f in os.listdir(FRAME_OUTPUT_DIR) if f.endswith(".png")])
+    image_files = sorted([f for f in os.listdir(frames_dir) if f.endswith(".png")])
     if not image_files:
         print("No frames saved. No video generated.")
         return
 
-    first_image = cv2.imread(os.path.join(FRAME_OUTPUT_DIR, image_files[0]))
+    first_image = cv2.imread(os.path.join(frames_dir, image_files[0]))
     height, width, _ = first_image.shape
     out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'mp4v'), 60, (width, height))
 
     for filename in tqdm(image_files, desc="Generating video", unit="frame"):
-        frame = cv2.imread(os.path.join(FRAME_OUTPUT_DIR, filename))
+        frame = cv2.imread(os.path.join(frames_dir, filename))
         out.write(frame)
 
     out.release()
     print(f"Tracking complete.")
-    print(f"Frames saved in: {FRAME_OUTPUT_DIR}")
+    print(f"Output folder: {job_output_dir}")
     print(f"Video saved as: {output_video_path}")
+
+    # Filter out worms with fewer than 'persistence' frames AND worms that were ever partial
+    filtered_tracks = {
+        worm_id: frames for worm_id, frames in keypoint_tracks.items()
+        if len(frames[0]) >= persistence and worm_id not in partial_worm_ids
+    }
+    num_low_persistence = sum(1 for worm_id, frames in keypoint_tracks.items() if len(frames[0]) < persistence)
+    num_partial = sum(1 for worm_id in keypoint_tracks if worm_id in partial_worm_ids and len(keypoint_tracks[worm_id][0]) >= persistence)
+    num_retained = len(filtered_tracks)
+    print(f"Discarded {num_low_persistence} worm(s) with fewer than {persistence} frames")
+    print(f"Discarded {num_partial} partial worm(s) (touched frame edge)")
+    print(f"Retained {num_retained} fully-visible worm(s)")
 
     # Save tracking metadata to YAML
     metadata = {
@@ -233,23 +358,40 @@ def run_tracking(video_path, video_output_dir, keypoints_per_worm, area_threshol
         "parameters": {
             "keypoints": keypoints_per_worm,
             "min_area": area_threshold,
-            "max_age": max_age
+            "max_age": max_age,
+            "persistence": persistence
         },
         "output_video": output_video_path,
-        "total_frames": frame_idx
+        "total_frames": frame_idx,
+        "worms_tracked": num_retained,
+        "worms_discarded_low_persistence": num_low_persistence,
+        "worms_discarded_partial": num_partial
     }
-    metadata_path = os.path.join(video_output_dir, f"tracking_metadata.yaml")
+    metadata_path = os.path.join(job_output_dir, "tracking_metadata.yaml")
     with open(metadata_path, 'w') as f:
         yaml.dump(metadata, f)
     print(f"Metadata saved at: {metadata_path}")
 
     # Save worm keypoints to .npz (per worm: [frame][keypoint][y,x])
-    keypoints_npz_path = os.path.join(video_output_dir, f"worm_keypoints.npz")
+    keypoints_npz_path = os.path.join(job_output_dir, "worm_keypoints.npz")
     np.savez_compressed(keypoints_npz_path,
-    **{str(worm_id): np.array(frames) for worm_id, frames in keypoint_tracks.items()})
-
+    **{str(worm_id): np.array(frames) for worm_id, frames in filtered_tracks.items()})
     print(f"Worm keypoints saved at: {keypoints_npz_path}")
-   
+
+    # Compute and save motion statistics (filtered_tracks already filtered by persistence)
+    motion_stats = compute_motion_stats(filtered_tracks, frame_idx)
+    if motion_stats:
+        motion_stats_path = os.path.join(job_output_dir, "motion_stats.json")
+        with open(motion_stats_path, 'w') as f:
+            json.dump(motion_stats, f, indent=2)
+        print(f"Motion stats saved at: {motion_stats_path}")
+
+    # Delete frames directory unless keep_frames is True
+    if not keep_frames:
+        shutil.rmtree(frames_dir)
+        print(f"Frames deleted.")
+    else:
+        print(f"Frames saved in: {frames_dir}")
 
     if show_video:
         try:
@@ -257,21 +399,25 @@ def run_tracking(video_path, video_output_dir, keypoints_per_worm, area_threshol
         except Exception as e:
             print(f"Could not open video: {e}")
 
+    return job_output_dir
+
 def main():
     parser = argparse.ArgumentParser(
         description="Worm tracking from video using skeleton-based interpolation.\n\nExample:\n  python worm_tracker.py input.mov output_dir --keypoints 15 --min-area 50 --max-age 35",
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument('video_path', type=str, help='Path to input video')
-    parser.add_argument('video_output_dir', type=str, help='Directory to save output video')
+    parser.add_argument('output_dir', type=str, help='Base directory for output (a subfolder will be created)')
     parser.add_argument('--keypoints', type=int, default=15, help='Number of keypoints per worm (default: 15)')
     parser.add_argument('--min-area', type=int, default=50, help='Minimum area of worm region (default: 50)')
     parser.add_argument('--max-age', type=int, default=35, help='Maximum age to track missing worms (default: 35)')
     parser.add_argument('--show', action='store_true', help='Display the output video after processing')
     parser.add_argument('--output-name', type=str, default=None, help='Custom name for the output video file (e.g., output.mp4)')
+    parser.add_argument('--keep-frames', action='store_true', help='Keep the generated frame images (deleted by default)')
+    parser.add_argument('--persistence', type=int, default=50, help='Minimum frames a worm must be tracked to be included (default: 50)')
 
     args = parser.parse_args()
-    run_tracking(args.video_path, args.video_output_dir, args.keypoints, args.min_area, args.max_age, args.show, args.output_name)
+    run_tracking(args.video_path, args.output_dir, args.keypoints, args.min_area, args.max_age, args.show, args.output_name, args.keep_frames, args.persistence)
 
 
 if __name__ == "__main__":
