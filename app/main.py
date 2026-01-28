@@ -58,7 +58,7 @@ async def upload_video(
     try:
         run_tracking(
             video_path=str(saved_path),
-            video_output_dir=str(job_dir),
+            output_dir=str(job_dir),
             keypoints_per_worm=keypoints_per_worm,
             area_threshold=area_threshold,
             max_age=max_age,
