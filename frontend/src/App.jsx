@@ -13,6 +13,7 @@ function App() {
   const [keypoints, setKeypoints] = useState(15);
   const [area, setArea] = useState(50);
   const [maxAge, setMaxAge] = useState(35);
+  const [persistence, setPersistence] = useState(50);
   const [outName, setOutName] = useState("");
 
   // Ref to clear the file input on reset
@@ -36,6 +37,7 @@ function App() {
     formData.append("keypoints_per_worm", keypoints);
     formData.append("area_threshold", area);
     formData.append("max_age", maxAge);
+    formData.append("persistence", persistence);
     formData.append("output_name", outName);
 
     try {
@@ -121,6 +123,16 @@ function App() {
               value={maxAge}
               onChange={(e) => setMaxAge(e.target.value)}
               min={0}
+            />
+          </div>
+          <div className="field">
+            <label className="label">Persistence</label>
+            <input
+              className="input"
+              type="number"
+              value={persistence}
+              onChange={(e) => setPersistence(e.target.value)}
+              min={1}
             />
           </div>
           <div className="field">

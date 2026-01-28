@@ -36,6 +36,7 @@ async def upload_video(
     keypoints_per_worm: int = Form(15),
     area_threshold: int = Form(50),
     max_age: int = Form(35),
+    persistence: int = Form(50),
     output_name: str | None = Form(None),
 ):
     if not file.filename:
@@ -64,6 +65,7 @@ async def upload_video(
             max_age=max_age,
             show_video=False,
             output_name=base_name,
+            persistence=persistence,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Tracking failed: {e}")
@@ -119,6 +121,7 @@ async def upload_video(
             "keypoints_per_worm": keypoints_per_worm,
             "area_threshold": area_threshold,
             "max_age": max_age,
+            "persistence": persistence,
             "output_name": base_name,
         },
     }
