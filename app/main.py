@@ -114,6 +114,7 @@ async def upload_video(
         yaml_files = list(job_dir.glob("**/*.yaml"))
         npz_files = list(job_dir.glob("**/*.npz"))
         json_files = list(job_dir.glob("**/*.json"))
+        csv_files = list(job_dir.glob("**/*.csv"))
 
         if not mp4s:
             yield f"data: {json.dumps({'stage': 'error', 'message': 'No output video produced'})}\n\n"
@@ -155,12 +156,20 @@ async def upload_video(
             if json_files:
                 zf.write(json_files[0], arcname=json_files[0].name)
 
+        # Build CSV data ZIP for data science export
+        data_zip = src_mp4.parent / f"{output_subfolder}_data.zip"
+        if csv_files:
+            with zipfile.ZipFile(data_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+                for csv_file in csv_files:
+                    zf.write(csv_file, arcname=csv_file.name)
+
         # Send final result
         motion_stats_file = json_files[0] if json_files else None
         result = {
             "stage": "done",
             "video": f"/download/{job_id}/{h264_mp4.name}" if h264_mp4.exists() else None,
             "package": f"/download/{job_id}/{package_zip.name}" if package_zip.exists() else None,
+            "data_csv": f"/download/{job_id}/{data_zip.name}" if data_zip.exists() else None,
             "motion_stats": f"/download/{job_id}/{motion_stats_file.name}" if motion_stats_file else None,
             "params": {
                 "keypoints_per_worm": keypoints_per_worm,

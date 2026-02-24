@@ -5,6 +5,7 @@ function App() {
   // Results
   const [processedUrl, setProcessedUrl] = useState(null); // MP4 (H.264) to view
   const [packageUrl, setPackageUrl] = useState(null); // ZIP with video+yaml+npz
+  const [dataCsvUrl, setDataCsvUrl] = useState(null); // CSV data ZIP for export
   const [outputFolderName, setOutputFolderName] = useState(""); // e.g., "20260224_181803_tracking01"
   const [motionStats, setMotionStats] = useState(null); // Motion analysis data
 
@@ -89,6 +90,9 @@ function App() {
               const zipLink = data.package
                 ? "http://127.0.0.1:8000" + data.package
                 : null;
+              const csvLink = data.data_csv
+                ? "http://127.0.0.1:8000" + data.data_csv
+                : null;
               // Extract folder name from package URL (e.g., "20260224_181803_tracking01")
               if (data.package) {
                 const parts = data.package.split("/");
@@ -104,6 +108,7 @@ function App() {
               }
               setProcessedUrl(videoLink);
               setPackageUrl(zipLink);
+              setDataCsvUrl(csvLink);
               setLoading(false);
             } else if (data.stage === "error") {
               throw new Error(data.message);
@@ -121,6 +126,7 @@ function App() {
   const resetForAnother = () => {
     setProcessedUrl(null);
     setPackageUrl(null);
+    setDataCsvUrl(null);
     setOutputFolderName("");
     setMotionStats(null);
     setLoading(false);
@@ -273,6 +279,11 @@ function App() {
                 {packageUrl && (
                   <a className="btn" href={packageUrl} download>
                     Download All (ZIP)
+                  </a>
+                )}
+                {dataCsvUrl && (
+                  <a className="btn" href={dataCsvUrl} download>
+                    Export CSV
                   </a>
                 )}
                 <button className="btn" onClick={resetForAnother}>

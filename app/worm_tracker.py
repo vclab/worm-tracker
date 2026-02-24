@@ -2,6 +2,7 @@ import argparse
 import os
 import shutil
 import json
+import csv
 import cv2
 import numpy as np
 from skimage.morphology import skeletonize
@@ -255,6 +256,91 @@ def compute_motion_stats(keypoint_tracks, total_frames):
 
     return motion_stats
 
+
+def export_csv_files(motion_stats, output_dir, base_name):
+    """
+    Export motion data as CSV files for data science analysis.
+
+    Creates two files:
+    - {base_name}_timeseries.csv: Per-frame motion data for all worms
+    - {base_name}_summary.csv: Summary statistics per worm
+    """
+    if not motion_stats:
+        return None, None
+
+    # Export timeseries CSV
+    timeseries_path = os.path.join(output_dir, f"{base_name}_timeseries.csv")
+    with open(timeseries_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow(['frame', 'worm_id', 'head_motion', 'tail_motion'])
+
+        per_frame = motion_stats.get('per_frame_motion', {})
+        for worm_id, data in per_frame.items():
+            head = data.get('head', [])
+            tail = data.get('tail', [])
+            window_size = data.get('window_size', 1)
+
+            for i, (h, t) in enumerate(zip(head, tail)):
+                frame = i * window_size
+                writer.writerow([frame, worm_id, f"{h:.6f}", f"{t:.6f}"])
+
+    print(f"Timeseries CSV saved at: {timeseries_path}")
+
+    # Export summary CSV
+    summary_path = os.path.join(output_dir, f"{base_name}_summary.csv")
+    with open(summary_path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerow([
+            'worm_id', 'overall_motion', 'head_motion', 'tail_motion'
+        ])
+
+        worm_ids = motion_stats.get('worm_ids', [])
+        overall = motion_stats.get('per_worm_motion', [])
+        head = motion_stats.get('per_worm_head_motion', [])
+        tail = motion_stats.get('per_worm_tail_motion', [])
+
+        for i, worm_id in enumerate(worm_ids):
+            writer.writerow([
+                worm_id,
+                f"{overall[i]:.6f}" if i < len(overall) else "",
+                f"{head[i]:.6f}" if i < len(head) else "",
+                f"{tail[i]:.6f}" if i < len(tail) else ""
+            ])
+
+        # Add aggregate row
+        writer.writerow([])
+        writer.writerow(['# Aggregate Statistics'])
+        writer.writerow(['metric', 'overall', 'head', 'tail'])
+        writer.writerow([
+            'mean',
+            f"{motion_stats.get('mean_motion', 0):.6f}",
+            f"{motion_stats.get('head_mean_motion', 0):.6f}",
+            f"{motion_stats.get('tail_mean_motion', 0):.6f}"
+        ])
+        writer.writerow([
+            'std',
+            f"{motion_stats.get('std_motion', 0):.6f}",
+            f"{motion_stats.get('head_std_motion', 0):.6f}",
+            f"{motion_stats.get('tail_std_motion', 0):.6f}"
+        ])
+        writer.writerow([
+            'min',
+            f"{motion_stats.get('min_motion', 0):.6f}",
+            f"{motion_stats.get('head_min_motion', 0):.6f}",
+            f"{motion_stats.get('tail_min_motion', 0):.6f}"
+        ])
+        writer.writerow([
+            'max',
+            f"{motion_stats.get('max_motion', 0):.6f}",
+            f"{motion_stats.get('head_max_motion', 0):.6f}",
+            f"{motion_stats.get('tail_max_motion', 0):.6f}"
+        ])
+
+    print(f"Summary CSV saved at: {summary_path}")
+
+    return timeseries_path, summary_path
+
+
 def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max_age, show_video, output_name=None, keep_frames=False, persistence=50, progress_callback=None):
     # Create output subfolder: {timestamp}_{output_name}
     video_basename = os.path.splitext(os.path.basename(video_path))[0]
@@ -456,6 +542,9 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         with open(motion_stats_path, 'w') as f:
             json.dump(motion_stats, f, indent=2)
         print(f"Motion stats saved at: {motion_stats_path}")
+
+        # Export CSV files for data science analysis
+        export_csv_files(motion_stats, job_output_dir, job_folder)
 
     # Delete frames directory unless keep_frames is True
     if not keep_frames:
