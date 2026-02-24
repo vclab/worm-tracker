@@ -1,157 +1,175 @@
+import { useState } from "react";
 import {
-  BarChart,
-  Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  ReferenceLine,
-  Cell,
+  Legend,
 } from "recharts";
 
 function MotionCharts({ data }) {
-  if (!data) return null;
+  const [selectedWorm, setSelectedWorm] = useState(null);
 
-  // Prepare per-worm data for bar charts (use actual worm IDs)
-  const wormData = data.per_worm_motion.map((motion, i) => ({
-    worm: `${data.worm_ids ? data.worm_ids[i] : i + 1}`,
-    motion: motion,
-  }));
+  if (!data || !data.worm_ids || data.worm_ids.length === 0) return null;
 
-  const headData = data.per_worm_head_motion?.map((motion, i) => ({
-    worm: `${data.worm_ids ? data.worm_ids[i] : i + 1}`,
-    motion: motion,
-  })) || [];
+  // Initialize selected worm to first one
+  const activeWorm = selectedWorm !== null ? selectedWorm : data.worm_ids[0];
 
-  const tailData = data.per_worm_tail_motion?.map((motion, i) => ({
-    worm: `${data.worm_ids ? data.worm_ids[i] : i + 1}`,
-    motion: motion,
-  })) || [];
+  // Get max values for heatmap scaling
+  const maxOverall = Math.max(...data.per_worm_motion);
+  const maxHead = Math.max(...data.per_worm_head_motion);
+  const maxTail = Math.max(...data.per_worm_tail_motion);
+  const globalMax = Math.max(maxOverall, maxHead, maxTail);
 
-  const mean = data.mean_motion;
-  const std = data.std_motion;
-  const headMean = data.head_mean_motion || 0;
-  const headStd = data.head_std_motion || 0;
-  const headMin = data.head_min_motion || 0;
-  const headMax = data.head_max_motion || 0;
-  const tailMean = data.tail_mean_motion || 0;
-  const tailStd = data.tail_std_motion || 0;
-  const tailMin = data.tail_min_motion || 0;
-  const tailMax = data.tail_max_motion || 0;
+  // Color scale function (0 to 1) -> color
+  const getColor = (value, max) => {
+    const intensity = max > 0 ? value / max : 0;
+    // Dark blue to bright cyan gradient
+    const r = Math.round(20 + intensity * 30);
+    const g = Math.round(40 + intensity * 180);
+    const b = Math.round(80 + intensity * 175);
+    return `rgb(${r}, ${g}, ${b})`;
+  };
 
-  const renderBarChart = (chartData, chartMean, chartStd, chartMin, chartMax, color, title) => (
-    <div className="chart-panel">
-      <h4>{title}</h4>
-      <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-          <XAxis
-            dataKey="worm"
-            stroke="#9ca3af"
-            tick={{ fontSize: 10 }}
-          />
-          <YAxis
-            stroke="#9ca3af"
-            tick={{ fontSize: 10 }}
-            label={{
-              value: "px/frame",
-              angle: -90,
-              position: "insideLeft",
-              fill: "#9ca3af",
-              fontSize: 10,
-            }}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: "#1f2937",
-              border: "1px solid #374151",
-            }}
-            formatter={(value) => [value.toFixed(3), "Motion"]}
-          />
-          <ReferenceLine
-            y={chartMean}
-            stroke="#10b981"
-            strokeWidth={2}
-            strokeDasharray="5 5"
-            label={{ value: "Mean", fill: "#10b981", fontSize: 10 }}
-          />
-          <ReferenceLine
-            y={chartMean + chartStd}
-            stroke="#f59e0b"
-            strokeWidth={1}
-            strokeDasharray="3 3"
-            label={{ value: "+1σ", fill: "#f59e0b", fontSize: 9 }}
-          />
-          <ReferenceLine
-            y={Math.max(0, chartMean - chartStd)}
-            stroke="#f59e0b"
-            strokeWidth={1}
-            strokeDasharray="3 3"
-            label={{ value: "-1σ", fill: "#f59e0b", fontSize: 9 }}
-          />
-          <Bar dataKey="motion" radius={[4, 4, 0, 0]}>
-            {chartData.map((entry, index) => (
-              <Cell key={`cell-${index}`} fill={color} />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-      <div className="summary-stats" style={{ marginTop: 8, display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap", fontSize: 12 }}>
-        <span>Mean: <strong>{chartMean.toFixed(3)}</strong></span>
-        <span>Std: <strong>{chartStd.toFixed(3)}</strong></span>
-        <span>Min: <strong>{chartMin.toFixed(3)}</strong></span>
-        <span>Max: <strong>{chartMax.toFixed(3)}</strong></span>
-      </div>
-    </div>
-  );
+  // Prepare time series data for selected worm
+  const getTimeSeriesData = () => {
+    if (!data.per_frame_motion || !data.per_frame_motion[activeWorm]) {
+      return [];
+    }
+    const wormData = data.per_frame_motion[activeWorm];
+    const headData = wormData.head || [];
+    const tailData = wormData.tail || [];
+    const windowSize = wormData.window_size || 1;
+
+    return headData.map((head, i) => ({
+      frame: i * windowSize,
+      head: head,
+      tail: tailData[i] || 0,
+    }));
+  };
+
+  const timeSeriesData = getTimeSeriesData();
 
   return (
-    <div className="charts-container">
-      <h3 className="charts-title">Motion Analysis</h3>
-      <p className="charts-subtitle">
-        Movement analysis across {data.num_worms} worm(s)
+    <div className="motion-analysis">
+      <h3 className="motion-title">Motion Analysis</h3>
+      <p className="motion-subtitle">
+        Click a row to view timeline. {data.num_worms} worm(s) tracked.
       </p>
 
-      {/* Overall motion */}
-      <div className="chart-panel" style={{ marginBottom: 24 }}>
-        <h4>Overall Motion (all keypoints)</h4>
-        <ResponsiveContainer width="100%" height={200}>
-          <BarChart data={wormData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-            <XAxis dataKey="worm" stroke="#9ca3af" tick={{ fontSize: 10 }} />
-            <YAxis
-              stroke="#9ca3af"
-              tick={{ fontSize: 10 }}
-              label={{ value: "px/frame", angle: -90, position: "insideLeft", fill: "#9ca3af", fontSize: 10 }}
-            />
-            <Tooltip
-              contentStyle={{ backgroundColor: "#1f2937", border: "1px solid #374151" }}
-              formatter={(value) => [value.toFixed(3), "Motion"]}
-            />
-            <ReferenceLine y={mean} stroke="#10b981" strokeWidth={2} strokeDasharray="5 5" label={{ value: "Mean", fill: "#10b981", fontSize: 10 }} />
-            <ReferenceLine y={mean + std} stroke="#f59e0b" strokeWidth={1} strokeDasharray="3 3" label={{ value: "+1σ", fill: "#f59e0b", fontSize: 9 }} />
-            <ReferenceLine y={Math.max(0, mean - std)} stroke="#f59e0b" strokeWidth={1} strokeDasharray="3 3" label={{ value: "-1σ", fill: "#f59e0b", fontSize: 9 }} />
-            <Bar dataKey="motion" radius={[4, 4, 0, 0]}>
-              {wormData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill="#6366f1" />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-        <div className="summary-stats" style={{ marginTop: 8, display: "flex", gap: 16, justifyContent: "center", flexWrap: "wrap", fontSize: 12 }}>
-          <span>Mean: <strong>{mean.toFixed(3)}</strong></span>
-          <span>Std: <strong>{std.toFixed(3)}</strong></span>
-          <span>Min: <strong>{data.min_motion.toFixed(3)}</strong></span>
-          <span>Max: <strong>{data.max_motion.toFixed(3)}</strong></span>
+      {/* Heatmap */}
+      <div className="heatmap-container">
+        <div className="heatmap">
+          {/* Header row */}
+          <div className="heatmap-row heatmap-header">
+            <div className="heatmap-label"></div>
+            <div className="heatmap-cell-header">Overall</div>
+            <div className="heatmap-cell-header">Head</div>
+            <div className="heatmap-cell-header">Tail</div>
+          </div>
+
+          {/* Data rows */}
+          {data.worm_ids.map((wormId, i) => (
+            <div
+              key={wormId}
+              className={`heatmap-row ${activeWorm === wormId ? "selected" : ""}`}
+              onClick={() => setSelectedWorm(wormId)}
+            >
+              <div className="heatmap-label">Worm {wormId}</div>
+              <div
+                className="heatmap-cell"
+                style={{ backgroundColor: getColor(data.per_worm_motion[i], globalMax) }}
+                title={`${data.per_worm_motion[i].toFixed(3)} px/frame`}
+              >
+                {data.per_worm_motion[i].toFixed(2)}
+              </div>
+              <div
+                className="heatmap-cell"
+                style={{ backgroundColor: getColor(data.per_worm_head_motion[i], globalMax) }}
+                title={`${data.per_worm_head_motion[i].toFixed(3)} px/frame`}
+              >
+                {data.per_worm_head_motion[i].toFixed(2)}
+              </div>
+              <div
+                className="heatmap-cell"
+                style={{ backgroundColor: getColor(data.per_worm_tail_motion[i], globalMax) }}
+                title={`${data.per_worm_tail_motion[i].toFixed(3)} px/frame`}
+              >
+                {data.per_worm_tail_motion[i].toFixed(2)}
+              </div>
+            </div>
+          ))}
+
+          {/* Summary row */}
+          <div className="heatmap-row heatmap-summary">
+            <div className="heatmap-label">Mean</div>
+            <div className="heatmap-cell summary-cell">
+              {data.mean_motion.toFixed(2)} <span className="std">±{data.std_motion.toFixed(2)}</span>
+            </div>
+            <div className="heatmap-cell summary-cell">
+              {data.head_mean_motion.toFixed(2)} <span className="std">±{data.head_std_motion.toFixed(2)}</span>
+            </div>
+            <div className="heatmap-cell summary-cell">
+              {data.tail_mean_motion.toFixed(2)} <span className="std">±{data.tail_std_motion.toFixed(2)}</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Head and Tail motion - full width, stacked */}
-      {headData.length > 0 && tailData.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-          {renderBarChart(headData, headMean, headStd, headMin, headMax, "#ef4444", "Head Motion")}
-          {renderBarChart(tailData, tailMean, tailStd, tailMin, tailMax, "#3b82f6", "Tail Motion")}
+      {/* Time Series */}
+      {timeSeriesData.length > 0 && (
+        <div className="timeline-container">
+          <h4 className="timeline-title">
+            Worm {activeWorm} — Motion Over Time
+          </h4>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={timeSeriesData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis
+                dataKey="frame"
+                stroke="#9ca3af"
+                tick={{ fontSize: 10 }}
+                label={{ value: "Frame", position: "insideBottom", offset: -5, fill: "#9ca3af", fontSize: 10 }}
+              />
+              <YAxis
+                stroke="#9ca3af"
+                tick={{ fontSize: 10 }}
+                label={{ value: "px/frame", angle: -90, position: "insideLeft", fill: "#9ca3af", fontSize: 10 }}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#1f2937",
+                  border: "1px solid #374151",
+                  borderRadius: "8px",
+                }}
+                formatter={(value) => [value.toFixed(3), ""]}
+                labelFormatter={(label) => `Frame ${label}`}
+              />
+              <Legend
+                wrapperStyle={{ fontSize: "12px" }}
+                iconType="line"
+              />
+              <Line
+                type="monotone"
+                dataKey="head"
+                stroke="#ef4444"
+                strokeWidth={1.5}
+                dot={false}
+                name="Head"
+              />
+              <Line
+                type="monotone"
+                dataKey="tail"
+                stroke="#3b82f6"
+                strokeWidth={1.5}
+                dot={false}
+                name="Tail"
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       )}
     </div>

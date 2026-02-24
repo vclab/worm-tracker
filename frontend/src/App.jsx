@@ -1,10 +1,12 @@
 import { useRef, useState } from "react";
+import MotionCharts from "./MotionCharts";
 
 function App() {
   // Results
   const [processedUrl, setProcessedUrl] = useState(null); // MP4 (H.264) to view
   const [packageUrl, setPackageUrl] = useState(null); // ZIP with video+yaml+npz
   const [outputFolderName, setOutputFolderName] = useState(""); // e.g., "20260224_181803_tracking01"
+  const [motionStats, setMotionStats] = useState(null); // Motion analysis data
 
   // UX
   const [loading, setLoading] = useState(false);
@@ -93,6 +95,13 @@ function App() {
                 const zipName = parts[parts.length - 1];
                 setOutputFolderName(zipName.replace(".zip", ""));
               }
+              // Fetch motion stats
+              if (data.motion_stats) {
+                fetch("http://127.0.0.1:8000" + data.motion_stats)
+                  .then((r) => r.json())
+                  .then((stats) => setMotionStats(stats))
+                  .catch(() => setMotionStats(null));
+              }
               setProcessedUrl(videoLink);
               setPackageUrl(zipLink);
               setLoading(false);
@@ -113,6 +122,7 @@ function App() {
     setProcessedUrl(null);
     setPackageUrl(null);
     setOutputFolderName("");
+    setMotionStats(null);
     setLoading(false);
     setFileName("");
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -274,6 +284,9 @@ function App() {
               <span>Input: {fileName || "—"}</span>
               <span>Output: {outputFolderName || "—"}</span>
             </div>
+
+            {/* Motion Analysis Charts */}
+            {motionStats && <MotionCharts data={motionStats} />}
           </>
         )}
       </main>

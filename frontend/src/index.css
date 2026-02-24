@@ -257,3 +257,111 @@ input[type="file"] {
   padding: 6px 10px;
   border-radius: 999px;
 }
+
+/* ===== Motion Analysis ===== */
+.motion-analysis {
+  margin-top: 24px;
+  padding: 20px;
+  background: #0b1220;
+  border: 1px solid var(--card-border);
+  border-radius: 12px;
+}
+.motion-title {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #e5e7eb;
+}
+.motion-subtitle {
+  margin: 0 0 16px 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ===== Heatmap ===== */
+.heatmap-container {
+  margin-bottom: 20px;
+}
+.heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.heatmap-row {
+  display: grid;
+  grid-template-columns: 80px repeat(3, 1fr);
+  gap: 2px;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+.heatmap-row:not(.heatmap-header):not(.heatmap-summary):hover {
+  transform: translateX(4px);
+}
+.heatmap-row.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+.heatmap-header {
+  cursor: default;
+  margin-bottom: 4px;
+}
+.heatmap-summary {
+  cursor: default;
+  margin-top: 8px;
+  border-top: 1px solid var(--card-border);
+  padding-top: 8px;
+}
+.heatmap-label {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  font-weight: 500;
+  color: #e5e7eb;
+  padding: 8px 4px;
+}
+.heatmap-cell-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 4px;
+}
+.heatmap-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  padding: 10px 8px;
+  border-radius: 4px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+.heatmap-cell.summary-cell {
+  background: transparent;
+  color: var(--muted);
+  font-weight: 400;
+  text-shadow: none;
+}
+.heatmap-cell .std {
+  font-size: 10px;
+  opacity: 0.7;
+  margin-left: 4px;
+}
+
+/* ===== Timeline ===== */
+.timeline-container {
+  padding-top: 16px;
+  border-top: 1px solid var(--card-border);
+}
+.timeline-title {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #e5e7eb;
+}

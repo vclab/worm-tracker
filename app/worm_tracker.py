@@ -148,6 +148,7 @@ def compute_motion_stats(keypoint_tracks, total_frames):
       - Divide by (num_keypoints × num_frames) = average movement per keypoint per frame
 
     Also computes separate head (keypoint 0) and tail (last keypoint) motion.
+    Includes per-frame motion data for time series visualization.
 
     Note: keypoint_tracks should already be filtered by persistence before calling.
     """
@@ -158,6 +159,7 @@ def compute_motion_stats(keypoint_tracks, total_frames):
     worm_motion_values = []  # One value per worm: avg movement per keypoint per frame
     head_motion_values = []  # Head (keypoint 0) motion per worm
     tail_motion_values = []  # Tail (last keypoint) motion per worm
+    per_frame_data = {}  # Per-frame motion for time series: {worm_id: {head: [...], tail: [...]}}
 
     for worm_id, kp_list in keypoint_tracks.items():
         # kp_list structure: kp_list[keypoint_idx] = list of [y,x] per frame
@@ -197,6 +199,29 @@ def compute_motion_stats(keypoint_tracks, total_frames):
         head_motion_values.append(float(avg_head_motion))
         tail_motion_values.append(float(avg_tail_motion))
 
+        # Store per-frame data for time series (downsample if too many frames)
+        # Use a sliding window average to reduce data size
+        window_size = max(1, num_transitions // 200)  # Target ~200 points max
+        if window_size > 1:
+            # Downsample using averaging
+            head_downsampled = [
+                float(np.mean(head_distances[i:i+window_size]))
+                for i in range(0, num_transitions, window_size)
+            ]
+            tail_downsampled = [
+                float(np.mean(tail_distances[i:i+window_size]))
+                for i in range(0, num_transitions, window_size)
+            ]
+        else:
+            head_downsampled = [float(x) for x in head_distances]
+            tail_downsampled = [float(x) for x in tail_distances]
+
+        per_frame_data[worm_id] = {
+            "head": head_downsampled,
+            "tail": tail_downsampled,
+            "window_size": window_size
+        }
+
     if not worm_motion_values:
         return None
 
@@ -223,7 +248,9 @@ def compute_motion_stats(keypoint_tracks, total_frames):
         "tail_std_motion": float(np.std(tail_motion_array)),
         "tail_min_motion": float(np.min(tail_motion_array)),
         "tail_max_motion": float(np.max(tail_motion_array)),
-        "per_worm_tail_motion": tail_motion_values
+        "per_worm_tail_motion": tail_motion_values,
+        # Per-frame data for time series visualization
+        "per_frame_motion": per_frame_data
     }
 
     return motion_stats
