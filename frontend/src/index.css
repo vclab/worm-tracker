@@ -295,7 +295,8 @@ input[type="file"] {
   transition: transform 0.1s;
 }
 .heatmap-row:not(.heatmap-header):not(.heatmap-summary):hover {
-  transform: translateX(4px);
+  background: rgba(99, 102, 241, 0.1);
+  border-radius: 4px;
 }
 .heatmap-row.selected {
   outline: 2px solid var(--accent);
