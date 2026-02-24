@@ -228,11 +228,12 @@ def compute_motion_stats(keypoint_tracks, total_frames):
 
     return motion_stats
 
-def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max_age, show_video, output_name=None, keep_frames=False, persistence=50):
-    # Create output subfolder: {video_basename}_{timestamp}
+def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max_age, show_video, output_name=None, keep_frames=False, persistence=50, progress_callback=None):
+    # Create output subfolder: {timestamp}_{output_name}
     video_basename = os.path.splitext(os.path.basename(video_path))[0]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    job_folder = f"{video_basename}_{timestamp}"
+    folder_name = output_name if output_name else "tracking01"
+    job_folder = f"{timestamp}_{folder_name}"
     job_output_dir = os.path.join(output_dir, job_folder)
     frames_dir = os.path.join(job_output_dir, "frames")
 
@@ -257,6 +258,10 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         if not ret:
             break
         pbar.update(1)
+
+        # Report progress every 10 frames
+        if progress_callback and frame_idx % 10 == 0:
+            progress_callback("processing", frame_idx, total_frames)
 
         binary = preprocess_frame(frame)
         mask_data = extract_worm_masks(binary, area_threshold)
@@ -355,9 +360,13 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     height, width, _ = first_image.shape
     out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'mp4v'), 60, (width, height))
 
-    for filename in tqdm(image_files, desc="Generating video", unit="frame"):
+    num_images = len(image_files)
+    for i, filename in enumerate(tqdm(image_files, desc="Generating video", unit="frame")):
         frame = cv2.imread(os.path.join(frames_dir, filename))
         out.write(frame)
+        # Report progress every 10 frames
+        if progress_callback and i % 10 == 0:
+            progress_callback("generating", i, num_images)
 
     out.release()
     print(f"Tracking complete.")
@@ -377,10 +386,19 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     print(f"Retained {num_retained} fully-visible worm(s)")
 
     # Save tracking metadata to YAML
+    # Extract original filename (strip job_id__ prefix if present)
+    input_filename = os.path.basename(video_path)
+    if "__" in input_filename:
+        original_filename = input_filename.split("__", 1)[1]
+    else:
+        original_filename = input_filename
+
     metadata = {
         "git_version": get_git_commit_hash(),
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "input": video_path,
+        "input_file": original_filename,
+        "input_path": video_path,
+        "output_name": output_name,
         "parameters": {
             "keypoints": keypoints_per_worm,
             "min_area": area_threshold,
@@ -424,6 +442,10 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
             os.startfile(output_video_path)
         except Exception as e:
             print(f"Could not open video: {e}")
+
+    # Signal completion
+    if progress_callback:
+        progress_callback("complete", 1, 1)
 
     return job_output_dir
 

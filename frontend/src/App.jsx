@@ -4,10 +4,14 @@ function App() {
   // Results
   const [processedUrl, setProcessedUrl] = useState(null); // MP4 (H.264) to view
   const [packageUrl, setPackageUrl] = useState(null); // ZIP with video+yaml+npz
+  const [outputFolderName, setOutputFolderName] = useState(""); // e.g., "20260224_181803_tracking01"
 
   // UX
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState("");
+
+  // Progress tracking
+  const [progress, setProgress] = useState({ stage: "", current: 0, total: 0 });
 
   // Parameters
   const [keypoints, setKeypoints] = useState(15);
@@ -31,6 +35,8 @@ function App() {
     setLoading(true);
     setProcessedUrl(null);
     setPackageUrl(null);
+    setProgress({ stage: "uploading", current: 0, total: 1 });
+    window.processingStartTime = Date.now();
 
     const formData = new FormData();
     formData.append("file", file);
@@ -51,19 +57,53 @@ function App() {
         throw new Error(errText || `Server error ${res.status}`);
       }
 
-      const data = await res.json();
-      const videoLink = data.video
-        ? "http://127.0.0.1:8000" + data.video
-        : null;
-      const zipLink = data.package
-        ? "http://127.0.0.1:8000" + data.package
-        : null;
+      // Read SSE stream
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      setProcessedUrl(videoLink);
-      setPackageUrl(zipLink);
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = JSON.parse(line.slice(6));
+            setProgress(data);
+
+            // Reset timer when processing starts
+            if (data.stage === "processing" && data.current === 0) {
+              window.processingStartTime = Date.now();
+            }
+
+            if (data.stage === "done") {
+              const videoLink = data.video
+                ? "http://127.0.0.1:8000" + data.video
+                : null;
+              const zipLink = data.package
+                ? "http://127.0.0.1:8000" + data.package
+                : null;
+              // Extract folder name from package URL (e.g., "20260224_181803_tracking01")
+              if (data.package) {
+                const parts = data.package.split("/");
+                const zipName = parts[parts.length - 1];
+                setOutputFolderName(zipName.replace(".zip", ""));
+              }
+              setProcessedUrl(videoLink);
+              setPackageUrl(zipLink);
+              setLoading(false);
+            } else if (data.stage === "error") {
+              throw new Error(data.message);
+            }
+          }
+        }
+      }
     } catch (err) {
       alert("Error processing video: " + err.message);
-    } finally {
       setLoading(false);
     }
   };
@@ -72,6 +112,7 @@ function App() {
   const resetForAnother = () => {
     setProcessedUrl(null);
     setPackageUrl(null);
+    setOutputFolderName("");
     setLoading(false);
     setFileName("");
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -142,7 +183,7 @@ function App() {
               type="text"
               value={outName}
               onChange={(e) => setOutName(e.target.value)}
-              placeholder="e.g. session1"
+              placeholder="tracking01"
             />
           </div>
         </section>
@@ -171,12 +212,44 @@ function App() {
 
             {/* Progress */}
             {loading && (
-              <>
-                <div className="progress">
-                  <div className="progress__bar" />
+              <div className="progress-container">
+                <div className="progress-header">
+                  <span className="progress-stage">
+                    {progress.stage === "uploading" && "Uploading..."}
+                    {progress.stage === "processing" && "Analyzing frames..."}
+                    {progress.stage === "generating" && "Generating video..."}
+                    {progress.stage === "finalizing" && "Finalizing..."}
+                    {progress.stage === "complete" && "Almost done..."}
+                  </span>
+                  {progress.total > 0 && progress.stage !== "finalizing" && (
+                    <span className="progress-percent">
+                      {Math.round((progress.current / progress.total) * 100)}%
+                    </span>
+                  )}
                 </div>
-                <div className="helper">Processing your video… please wait</div>
-              </>
+                <div className="progress">
+                  <div
+                    className="progress__bar"
+                    style={{
+                      width: progress.total > 0
+                        ? `${(progress.current / progress.total) * 100}%`
+                        : "100%",
+                      animation: progress.total > 0 ? "none" : undefined,
+                    }}
+                  />
+                </div>
+                {progress.total > 0 && progress.stage !== "finalizing" && (
+                  <div className="progress-details">
+                    Frame {progress.current} of {progress.total}
+                    {progress.current > 0 && progress.stage === "processing" && (
+                      <span className="progress-eta">
+                        {" "}
+                        — ~{Math.round(((progress.total - progress.current) / progress.current) * (Date.now() - window.processingStartTime) / 1000)}s remaining
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
           </section>
         )}
@@ -186,23 +259,20 @@ function App() {
           <>
             <video className="player" src={processedUrl} controls />
             <div className="actions">
-              <div className="helper">
-                Video is web-optimized (H.264). Package includes YAML + NPZ.
-              </div>
               <div style={{ display: "flex", gap: 8 }}>
                 {packageUrl && (
-                  <a className="link" href={packageUrl} download>
+                  <a className="btn" href={packageUrl} download>
                     Download All (ZIP)
                   </a>
                 )}
-                <button className="link" onClick={resetForAnother}>
+                <button className="btn" onClick={resetForAnother}>
                   Run on another file
                 </button>
               </div>
             </div>
             <div className="meta">
-              <span>File: {fileName || "—"}</span>
-              <span>Output: {outName || "processed"}</span>
+              <span>Input: {fileName || "—"}</span>
+              <span>Output: {outputFolderName || "—"}</span>
             </div>
           </>
         )}
