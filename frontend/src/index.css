@@ -15,7 +15,12 @@ body {
   -moz-osx-font-smoothing: grayscale;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto,
     Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-  background: #0b0f1a; /* deep navy */
+  background:
+    linear-gradient(rgba(11, 15, 26, 0.97), rgba(11, 15, 26, 0.97)),
+    linear-gradient(90deg, #1a1f2e 1px, transparent 1px),
+    linear-gradient(#1a1f2e 1px, transparent 1px);
+  background-size: 100% 100%, 20px 20px, 20px 20px;
+  background-color: #0b0f1a;
   color: #e5e7eb; /* light gray */
 }
 
@@ -51,19 +56,84 @@ body {
 /* ===== Header ===== */
 .header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--card-border);
+}
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+}
+.title-row {
+  display: flex;
+  align-items: baseline;
   gap: 12px;
-  margin-bottom: 20px;
 }
 .title {
-  font-size: 20px;
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 24px;
   font-weight: 700;
-  letter-spacing: 0.2px;
+  letter-spacing: 2px;
+  color: #fff;
+  margin: 0;
+}
+.version {
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--accent);
+  background: rgba(99, 102, 241, 0.15);
+  padding: 3px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
 }
 .subtitle {
+  font-family: "SF Mono", "Fira Code", "Consolas", monospace;
   color: var(--muted);
-  font-size: 14px;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  margin: 0;
+}
+.status-idle {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+}
+.badge-processing {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.3);
+  color: #a5b4fc;
+}
+
+/* ===== Footer ===== */
+.footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--card-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.footer a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+.footer a:hover {
+  color: #a5b4fc;
+  text-decoration: underline;
 }
 
 /* ===== Form ===== */
@@ -168,6 +238,16 @@ input[type="file"] {
 }
 .btn:active {
   transform: translateY(1px);
+}
+.btn-cancel {
+  margin-top: 12px;
+  background: rgba(239, 68, 68, 0.15);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+.btn-cancel:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 /* ===== Progress bar ===== */
