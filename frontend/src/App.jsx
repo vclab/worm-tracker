@@ -1,9 +1,10 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import MotionCharts from "./MotionCharts";
 
 function App() {
   // Results
   const [processedUrl, setProcessedUrl] = useState(null); // MP4 (H.264) to view
+  const [originalUrl, setOriginalUrl] = useState(null); // Blob URL for original video
   const [packageUrl, setPackageUrl] = useState(null); // ZIP with video+yaml+npz
   const [dataCsvUrl, setDataCsvUrl] = useState(null); // CSV data ZIP for export
   const [outputFolderName, setOutputFolderName] = useState(""); // e.g., "20260224_181803_tracking01"
@@ -16,6 +17,14 @@ function App() {
   // Progress tracking
   const [progress, setProgress] = useState({ stage: "", current: 0, total: 0 });
 
+  // Video comparison slider
+  const [sliderPos, setSliderPos] = useState(50); // Percentage position of divider
+  const [isDragging, setIsDragging] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const compareContainerRef = useRef(null);
+  const originalVideoRef = useRef(null);
+  const trackedVideoRef = useRef(null);
+
   // Parameters
   const [keypoints, setKeypoints] = useState(15);
   const [area, setArea] = useState(50);
@@ -26,6 +35,43 @@ function App() {
   // Ref to clear the file input on reset
   const fileInputRef = useRef(null);
 
+  // Sync video playback between original and tracked
+  const syncVideos = useCallback((source, target) => {
+    if (!source || !target) return;
+    if (Math.abs(source.currentTime - target.currentTime) > 0.1) {
+      target.currentTime = source.currentTime;
+    }
+  }, []);
+
+  // Handle slider drag
+  const handleSliderMove = useCallback((clientX) => {
+    if (!compareContainerRef.current) return;
+    const rect = compareContainerRef.current.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const percent = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    setSliderPos(percent);
+  }, []);
+
+  useEffect(() => {
+    if (!isDragging) return;
+
+    const handleMouseMove = (e) => handleSliderMove(e.clientX);
+    const handleTouchMove = (e) => handleSliderMove(e.touches[0].clientX);
+    const handleEnd = () => setIsDragging(false);
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("touchmove", handleTouchMove);
+    window.addEventListener("mouseup", handleEnd);
+    window.addEventListener("touchend", handleEnd);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("touchmove", handleTouchMove);
+      window.removeEventListener("mouseup", handleEnd);
+      window.removeEventListener("touchend", handleEnd);
+    };
+  }, [isDragging, handleSliderMove]);
+
   const onPickFile = (e) => {
     const f = e.target.files?.[0];
     if (f) setFileName(f.name);
@@ -34,6 +80,10 @@ function App() {
   const handleFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    // Create blob URL for original video comparison
+    const blobUrl = URL.createObjectURL(file);
+    setOriginalUrl(blobUrl);
 
     setLoading(true);
     setProcessedUrl(null);
@@ -124,6 +174,9 @@ function App() {
 
   // Reset UI to run on another file (keeps parameter values)
   const resetForAnother = () => {
+    // Revoke blob URL to free memory
+    if (originalUrl) URL.revokeObjectURL(originalUrl);
+    setOriginalUrl(null);
     setProcessedUrl(null);
     setPackageUrl(null);
     setDataCsvUrl(null);
@@ -131,6 +184,8 @@ function App() {
     setMotionStats(null);
     setLoading(false);
     setFileName("");
+    setSliderPos(50);
+    setIsPlaying(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
     // Optionally scroll to top for convenience
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -273,7 +328,114 @@ function App() {
         {/* Player + actions */}
         {processedUrl && !loading && (
           <>
-            <video className="player" src={processedUrl} controls />
+            {/* Video comparison slider */}
+            <div
+              className="video-compare"
+              ref={compareContainerRef}
+              onMouseDown={(e) => {
+                if (e.target.closest('.compare-slider')) {
+                  setIsDragging(true);
+                }
+              }}
+              onTouchStart={(e) => {
+                if (e.target.closest('.compare-slider')) {
+                  setIsDragging(true);
+                }
+              }}
+            >
+              {/* Original video (bottom layer, clipped from left) */}
+              <video
+                className="compare-video compare-original"
+                ref={originalVideoRef}
+                src={originalUrl}
+                style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
+                onPlay={() => trackedVideoRef.current?.play()}
+                onPause={() => trackedVideoRef.current?.pause()}
+                onSeeked={() => syncVideos(originalVideoRef.current, trackedVideoRef.current)}
+                onTimeUpdate={() => {
+                  if (!trackedVideoRef.current?.paused) return;
+                  syncVideos(originalVideoRef.current, trackedVideoRef.current);
+                }}
+                muted
+              />
+              {/* Tracked video (top layer, clipped from right) */}
+              <video
+                className="compare-video compare-tracked"
+                ref={trackedVideoRef}
+                src={processedUrl}
+                style={{ clipPath: `inset(0 0 0 ${sliderPos}%)` }}
+                onPlay={() => {
+                  originalVideoRef.current?.play();
+                  setIsPlaying(true);
+                }}
+                onPause={() => {
+                  originalVideoRef.current?.pause();
+                  setIsPlaying(false);
+                }}
+                onSeeked={() => syncVideos(trackedVideoRef.current, originalVideoRef.current)}
+                onTimeUpdate={() => {
+                  if (!originalVideoRef.current?.paused) return;
+                  syncVideos(trackedVideoRef.current, originalVideoRef.current);
+                }}
+                muted
+              />
+              {/* Slider handle */}
+              <div
+                className="compare-slider"
+                style={{ left: `${sliderPos}%` }}
+              >
+                <div className="compare-slider-line" />
+                <div className="compare-slider-handle">
+                  <span className="compare-label compare-label-left">Original</span>
+                  <span className="compare-label compare-label-right">Tracked</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Video controls */}
+            <div className="video-controls">
+              <button
+                className="control-btn"
+                onClick={() => {
+                  if (isPlaying) {
+                    trackedVideoRef.current?.pause();
+                    originalVideoRef.current?.pause();
+                  } else {
+                    trackedVideoRef.current?.play();
+                    originalVideoRef.current?.play();
+                  }
+                }}
+              >
+                {isPlaying ? "⏸" : "▶"}
+              </button>
+              <input
+                type="range"
+                className="control-seek"
+                min="0"
+                max="100"
+                step="0.1"
+                defaultValue="0"
+                onChange={(e) => {
+                  const pct = e.target.value / 100;
+                  if (trackedVideoRef.current) {
+                    trackedVideoRef.current.currentTime = pct * trackedVideoRef.current.duration;
+                  }
+                  if (originalVideoRef.current) {
+                    originalVideoRef.current.currentTime = pct * originalVideoRef.current.duration;
+                  }
+                }}
+                ref={(el) => {
+                  if (el && trackedVideoRef.current) {
+                    trackedVideoRef.current.ontimeupdate = () => {
+                      if (trackedVideoRef.current) {
+                        el.value = (trackedVideoRef.current.currentTime / trackedVideoRef.current.duration) * 100;
+                      }
+                    };
+                  }
+                }}
+              />
+            </div>
+
             <div className="actions">
               <div style={{ display: "flex", gap: 8 }}>
                 {packageUrl && (
