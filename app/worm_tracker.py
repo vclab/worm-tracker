@@ -386,7 +386,7 @@ def export_csv_files(motion_stats, output_dir, base_name):
     return timeseries_path, summary_path
 
 
-def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max_age, show_video, output_name=None, keep_frames=False, persistence=50, progress_callback=None):
+def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max_age, show_video, output_name=None, keep_frames=False, persistence=50, progress_callback=None, cancel_check=None):
     # Create output subfolder: {timestamp}_{output_name}
     video_basename = os.path.splitext(os.path.basename(video_path))[0]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -420,6 +420,15 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         # Report progress every 10 frames
         if progress_callback and frame_idx % 10 == 0:
             progress_callback("processing", frame_idx, total_frames)
+
+        # Check for cancellation
+        if cancel_check and cancel_check():
+            print("Processing cancelled by user")
+            pbar.close()
+            cap.release()
+            if progress_callback:
+                progress_callback("cancelled", frame_idx, total_frames)
+            return None
 
         binary = preprocess_frame(frame)
         mask_data = extract_worm_masks(binary, area_threshold)
@@ -520,6 +529,14 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
 
     num_images = len(image_files)
     for i, filename in enumerate(tqdm(image_files, desc="Generating video", unit="frame")):
+        # Check for cancellation
+        if cancel_check and cancel_check():
+            print("Video generation cancelled by user")
+            out.release()
+            if progress_callback:
+                progress_callback("cancelled", i, num_images)
+            return None
+
         frame = cv2.imread(os.path.join(frames_dir, filename))
         out.write(frame)
         # Report progress every 10 frames

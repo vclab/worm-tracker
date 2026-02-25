@@ -16,6 +16,7 @@ function App() {
 
   // Progress tracking
   const [progress, setProgress] = useState({ stage: "", current: 0, total: 0 });
+  const [currentJobId, setCurrentJobId] = useState(null);
 
   // Video comparison slider
   const [sliderPos, setSliderPos] = useState(50); // Percentage position of divider
@@ -34,6 +35,7 @@ function App() {
 
   // Ref to clear the file input on reset
   const fileInputRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
   // Sync video playback between original and tracked
   const syncVideos = useCallback((source, target) => {
@@ -99,10 +101,14 @@ function App() {
     formData.append("persistence", persistence);
     formData.append("output_name", outName);
 
+    // Create abort controller for cancellation
+    abortControllerRef.current = new AbortController();
+
     try {
       const res = await fetch("http://127.0.0.1:8000/upload", {
         method: "POST",
         body: formData,
+        signal: abortControllerRef.current.signal,
       });
 
       if (!res.ok) {
@@ -127,6 +133,11 @@ function App() {
           if (line.startsWith("data: ")) {
             const data = JSON.parse(line.slice(6));
             setProgress(data);
+
+            // Capture job_id when processing starts
+            if (data.stage === "started" && data.job_id) {
+              setCurrentJobId(data.job_id);
+            }
 
             // Reset timer when processing starts
             if (data.stage === "processing" && data.current === 0) {
@@ -159,6 +170,7 @@ function App() {
               setProcessedUrl(videoLink);
               setPackageUrl(zipLink);
               setDataCsvUrl(csvLink);
+              setCurrentJobId(null);
               setLoading(false);
             } else if (data.stage === "error") {
               throw new Error(data.message);
@@ -167,9 +179,44 @@ function App() {
         }
       }
     } catch (err) {
-      alert("Error processing video: " + err.message);
+      if (err.name === "AbortError") {
+        // User cancelled - don't show error
+        setProgress({ stage: "", current: 0, total: 0 });
+      } else {
+        alert("Error processing video: " + err.message);
+      }
       setLoading(false);
+    } finally {
+      abortControllerRef.current = null;
     }
+  };
+
+  // Cancel ongoing processing
+  const cancelProcessing = async () => {
+    // Abort the fetch request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    // Call backend to cancel job and clean up files
+    if (currentJobId) {
+      try {
+        await fetch(`http://127.0.0.1:8000/cancel/${currentJobId}`, {
+          method: "POST",
+        });
+      } catch (e) {
+        // Ignore errors - job might already be done
+      }
+    }
+
+    // Revoke blob URL since we're cancelling
+    if (originalUrl) URL.revokeObjectURL(originalUrl);
+    setOriginalUrl(null);
+    setCurrentJobId(null);
+    setLoading(false);
+    setFileName("");
+    setProgress({ stage: "", current: 0, total: 0 });
+    if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   // Reset UI to run on another file (keeps parameter values)
@@ -182,6 +229,7 @@ function App() {
     setDataCsvUrl(null);
     setOutputFolderName("");
     setMotionStats(null);
+    setCurrentJobId(null);
     setLoading(false);
     setFileName("");
     setSliderPos(50);
@@ -196,13 +244,22 @@ function App() {
       <main className="card">
         {/* Header */}
         <div className="header">
-          <div>
-            <div className="title">Worm Tracker</div>
-            <div className="subtitle">
-              Upload → Process → View → Download Package
+          <div className="header-left">
+            <div className="title-row">
+              <h1 className="title">WORM TRACKER</h1>
+              <span className="version">v1.0</span>
             </div>
+            <p className="subtitle">C. elegans motion analysis</p>
           </div>
-          {processedUrl && <span className="badge">Ready</span>}
+          <div className="header-right">
+            {processedUrl ? (
+              <span className="badge">Ready</span>
+            ) : loading ? (
+              <span className="badge badge-processing">Processing</span>
+            ) : (
+              <span className="status-idle">Ready to analyze</span>
+            )}
+          </div>
         </div>
 
         {/* Parameters */}
@@ -320,6 +377,9 @@ function App() {
                     )}
                   </div>
                 )}
+                <button className="btn btn-cancel" onClick={cancelProcessing}>
+                  Cancel
+                </button>
               </div>
             )}
           </section>
@@ -462,6 +522,14 @@ function App() {
             {motionStats && <MotionCharts data={motionStats} />}
           </>
         )}
+
+        {/* Footer */}
+        <footer className="footer">
+          <span>Built by</span>
+          <a href="https://www.vclab.ca" target="_blank" rel="noopener noreferrer">
+            VCLab
+          </a>
+        </footer>
       </main>
     </div>
   );

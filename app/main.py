@@ -1,6 +1,6 @@
 # Thesis/app/main.py
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +14,9 @@ import threading
 from app.worm_tracker import run_tracking
 
 app = FastAPI(title="Worm Tracker API (Local)")
+
+# Track active jobs for cancellation
+active_jobs: dict[str, dict] = {}  # job_id -> {"cancel_event": Event, "saved_path": Path, "job_dir": Path}
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -58,6 +61,14 @@ async def upload_video(
     # Decide a base name for outputs
     base_name = output_name if output_name else "tracking01"
 
+    # Create cancellation event for this job
+    cancel_event = threading.Event()
+    active_jobs[job_id] = {
+        "cancel_event": cancel_event,
+        "saved_path": saved_path,
+        "job_dir": job_dir,
+    }
+
     def generate_sse():
         # Queue for progress updates from tracker thread
         progress_queue = queue.Queue()
@@ -65,6 +76,9 @@ async def upload_video(
 
         def progress_callback(stage, current, total):
             progress_queue.put({"stage": stage, "current": current, "total": total})
+
+        def cancel_check():
+            return cancel_event.is_set()
 
         def run_tracker():
             try:
@@ -78,6 +92,7 @@ async def upload_video(
                     output_name=base_name,
                     persistence=persistence,
                     progress_callback=progress_callback,
+                    cancel_check=cancel_check,
                 )
             except Exception as e:
                 error_holder[0] = e
@@ -87,12 +102,23 @@ async def upload_video(
         tracker_thread = threading.Thread(target=run_tracker)
         tracker_thread.start()
 
+        # Send job_id first so frontend can cancel if needed
+        yield f"data: {json.dumps({'stage': 'started', 'job_id': job_id})}\n\n"
+
         # Yield progress events
         while True:
+            # Check if cancelled
+            if cancel_event.is_set():
+                yield f"data: {json.dumps({'stage': 'cancelled', 'message': 'Processing cancelled'})}\n\n"
+                tracker_thread.join(timeout=5)
+                # Cleanup is handled by the cancel endpoint
+                active_jobs.pop(job_id, None)
+                return
+
             try:
                 msg = progress_queue.get(timeout=0.5)
                 yield f"data: {json.dumps(msg)}\n\n"
-                if msg.get("stage") in ("complete", "error"):
+                if msg.get("stage") in ("complete", "error", "cancelled"):
                     break
             except queue.Empty:
                 if not tracker_thread.is_alive():
@@ -100,6 +126,9 @@ async def upload_video(
                 continue
 
         tracker_thread.join()
+
+        # Clean up from active jobs
+        active_jobs.pop(job_id, None)
 
         # Check for errors
         if error_holder[0]:
@@ -192,3 +221,37 @@ def download_file(job_id: str, filename: str):
     if not matches:
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(matches[0], filename=filename)
+
+
+@app.post("/cancel/{job_id}")
+def cancel_job(job_id: str):
+    """Cancel an active job and clean up its files."""
+    job_info = active_jobs.get(job_id)
+
+    if not job_info:
+        # Job might already be done or doesn't exist
+        return JSONResponse({"ok": True, "message": "Job not found or already completed"})
+
+    # Signal cancellation
+    job_info["cancel_event"].set()
+
+    # Clean up files
+    saved_path = job_info.get("saved_path")
+    job_dir = job_info.get("job_dir")
+
+    try:
+        if saved_path and saved_path.exists():
+            saved_path.unlink()
+    except Exception:
+        pass
+
+    try:
+        if job_dir and job_dir.exists():
+            shutil.rmtree(job_dir)
+    except Exception:
+        pass
+
+    # Remove from active jobs
+    active_jobs.pop(job_id, None)
+
+    return JSONResponse({"ok": True, "message": "Job cancelled and files cleaned up"})
