@@ -525,10 +525,7 @@ function App() {
 
         {/* Footer */}
         <footer className="footer">
-          <span>Built by</span>
-          <a href="https://www.vclab.ca" target="_blank" rel="noopener noreferrer">
-            VCLab
-          </a>
+          <a href="https://www.vclab.ca" target="_blank" rel="noopener noreferrer">VCLab</a><span>, Faculty of Science, Ontario Tech University</span>
         </footer>
       </main>
     </div>
