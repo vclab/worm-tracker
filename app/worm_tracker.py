@@ -64,7 +64,44 @@ def extract_worm_masks(binary, area_threshold, edge_margin=5):
             masks.append((mask, is_partial))
     return masks
 
+def measure_width_at_point(pt, next_pt, mask):
+    """
+    Measure contour width perpendicular to skeleton direction at a point.
+
+    Args:
+        pt: Current point on skeleton (y, x)
+        next_pt: Next point on skeleton for direction (y, x)
+        mask: Binary mask of the worm
+
+    Returns:
+        Width in pixels perpendicular to skeleton at this point
+    """
+    direction = np.array(next_pt, dtype=float) - np.array(pt, dtype=float)
+    norm = np.linalg.norm(direction)
+    if norm < 1e-6:
+        return 0
+
+    # Perpendicular direction
+    perpendicular = np.array([-direction[1], direction[0]]) / norm
+
+    # Sample along perpendicular line and count mask pixels
+    width = 0
+    for d in range(-20, 21):
+        sample = np.array(pt) + d * perpendicular
+        y, x = int(round(sample[0])), int(round(sample[1]))
+        if 0 <= y < mask.shape[0] and 0 <= x < mask.shape[1]:
+            if mask[y, x] > 0:
+                width += 1
+    return width
+
+
 def get_skeleton_points(mask, num_points):
+    """
+    Extract evenly-spaced keypoints along the worm skeleton.
+
+    The skeleton is oriented so that keypoint 0 is the head (wider end)
+    and keypoint[-1] is the tail (narrower end).
+    """
     mask_dilated = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
     skeleton = skeletonize(mask_dilated > 0)
 
@@ -88,6 +125,14 @@ def get_skeleton_points(mask, num_points):
     path = np.array(path)
     if len(path) < 2:
         return None
+
+    # Orient skeleton so head (wider end) is first
+    # Measure width at both endpoints
+    width_start = measure_width_at_point(path[0], path[min(3, len(path)-1)], mask)
+    width_end = measure_width_at_point(path[-1], path[max(-4, -len(path))], mask)
+
+    if width_end > width_start:
+        path = path[::-1]  # Flip so head (wider end) is first
 
     indices = np.linspace(0, len(path) - 1, num=num_points, dtype=int)
     return path[indices]
