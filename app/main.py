@@ -15,8 +15,9 @@ from app.worm_tracker import run_tracking
 
 app = FastAPI(title="Worm Tracker API (Local)")
 
-# Track active jobs for cancellation
+# Track active jobs for cancellation (with lock for thread safety)
 active_jobs: dict[str, dict] = {}  # job_id -> {"cancel_event": Event, "saved_path": Path, "job_dir": Path}
+active_jobs_lock = threading.Lock()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
@@ -63,11 +64,12 @@ async def upload_video(
 
     # Create cancellation event for this job
     cancel_event = threading.Event()
-    active_jobs[job_id] = {
-        "cancel_event": cancel_event,
-        "saved_path": saved_path,
-        "job_dir": job_dir,
-    }
+    with active_jobs_lock:
+        active_jobs[job_id] = {
+            "cancel_event": cancel_event,
+            "saved_path": saved_path,
+            "job_dir": job_dir,
+        }
 
     def generate_sse():
         # Queue for progress updates from tracker thread
@@ -112,7 +114,8 @@ async def upload_video(
                 yield f"data: {json.dumps({'stage': 'cancelled', 'message': 'Processing cancelled'})}\n\n"
                 tracker_thread.join(timeout=5)
                 # Cleanup is handled by the cancel endpoint
-                active_jobs.pop(job_id, None)
+                with active_jobs_lock:
+                    active_jobs.pop(job_id, None)
                 return
 
             try:
@@ -128,7 +131,8 @@ async def upload_video(
         tracker_thread.join()
 
         # Clean up from active jobs
-        active_jobs.pop(job_id, None)
+        with active_jobs_lock:
+            active_jobs.pop(job_id, None)
 
         # Check for errors
         if error_holder[0]:
@@ -215,22 +219,38 @@ async def upload_video(
 
 @app.get("/download/{job_id}/{filename}")
 def download_file(job_id: str, filename: str):
+    # Sanitize filename to prevent path traversal attacks
+    safe_filename = Path(filename).name  # Extracts just the filename, removes any path components
+    if not safe_filename or safe_filename != filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
     job_dir = OUTPUTS / job_id
+    if not job_dir.exists():
+        raise HTTPException(status_code=404, detail="Job not found")
+
     # Search recursively for the file (may be in a subfolder)
-    matches = list(job_dir.glob(f"**/{filename}"))
+    matches = list(job_dir.glob(f"**/{safe_filename}"))
     if not matches:
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(matches[0], filename=filename)
+
+    # Verify the matched file is within job_dir (defense in depth)
+    matched_path = matches[0].resolve()
+    if not str(matched_path).startswith(str(job_dir.resolve())):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+    return FileResponse(matched_path, filename=safe_filename)
 
 
 @app.post("/cancel/{job_id}")
 def cancel_job(job_id: str):
     """Cancel an active job and clean up its files."""
-    job_info = active_jobs.get(job_id)
-
-    if not job_info:
-        # Job might already be done or doesn't exist
-        return JSONResponse({"ok": True, "message": "Job not found or already completed"})
+    with active_jobs_lock:
+        job_info = active_jobs.get(job_id)
+        if not job_info:
+            # Job might already be done or doesn't exist
+            return JSONResponse({"ok": True, "message": "Job not found or already completed"})
+        # Remove from active jobs immediately to prevent race conditions
+        active_jobs.pop(job_id, None)
 
     # Signal cancellation
     job_info["cancel_event"].set()
@@ -250,8 +270,5 @@ def cancel_job(job_id: str):
             shutil.rmtree(job_dir)
     except Exception:
         pass
-
-    # Remove from active jobs
-    active_jobs.pop(job_id, None)
 
     return JSONResponse({"ok": True, "message": "Job cancelled and files cleaned up"})

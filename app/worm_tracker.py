@@ -401,7 +401,8 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
         print(f"Error: Cannot open video {video_path}")
-        return
+        cap.release()
+        return None
 
     frame_idx = 0
     track_memory = []
@@ -521,9 +522,13 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     image_files = sorted([f for f in os.listdir(frames_dir) if f.endswith(".png")])
     if not image_files:
         print("No frames saved. No video generated.")
-        return
+        return None
 
     first_image = cv2.imread(os.path.join(frames_dir, image_files[0]))
+    if first_image is None:
+        print(f"Error: Cannot read first frame {image_files[0]}")
+        return None
+
     height, width, _ = first_image.shape
     out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'mp4v'), 60, (width, height))
 
@@ -538,6 +543,9 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
             return None
 
         frame = cv2.imread(os.path.join(frames_dir, filename))
+        if frame is None:
+            print(f"Warning: Cannot read frame {filename}, skipping")
+            continue
         out.write(frame)
         # Report progress every 10 frames
         if progress_callback and i % 10 == 0:
