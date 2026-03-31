@@ -33,9 +33,23 @@ function App() {
   const [persistence, setPersistence] = useState(50);
   const [outName, setOutName] = useState("");
 
+  // Re-run support
+  const [originalFile, setOriginalFile] = useState(null); // Stored File object for re-runs
+  const [lastParams, setLastParams] = useState(null); // Params snapshot from last completed run
+
   // Ref to clear the file input on reset
   const fileInputRef = useRef(null);
   const abortControllerRef = useRef(null);
+
+  // Detect if current params differ from last run
+  const paramsChanged =
+    processedUrl &&
+    !loading &&
+    lastParams !== null &&
+    (String(keypoints) !== String(lastParams.keypoints) ||
+      String(area) !== String(lastParams.area) ||
+      String(maxAge) !== String(lastParams.maxAge) ||
+      String(persistence) !== String(lastParams.persistence));
 
   // Sync video playback between original and tracked
   const syncVideos = useCallback((source, target) => {
@@ -79,17 +93,20 @@ function App() {
     if (f) setFileName(f.name);
   };
 
-  const handleFileChange = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Create blob URL for original video comparison
-    const blobUrl = URL.createObjectURL(file);
-    setOriginalUrl(blobUrl);
+  // Core processing function. Pass preserveOriginalUrl=true when re-running the
+  // same file so we don't revoke and recreate the identical blob URL.
+  const processFile = async (file, { preserveOriginalUrl = false } = {}) => {
+    if (!preserveOriginalUrl) {
+      const blobUrl = URL.createObjectURL(file);
+      setOriginalUrl(blobUrl);
+    }
 
     setLoading(true);
     setProcessedUrl(null);
     setPackageUrl(null);
+    setDataCsvUrl(null);
+    setOutputFolderName("");
+    setMotionStats(null);
     setProgress({ stage: "uploading", current: 0, total: 1 });
     window.processingStartTime = Date.now();
 
@@ -101,7 +118,6 @@ function App() {
     formData.append("persistence", persistence);
     formData.append("output_name", outName);
 
-    // Create abort controller for cancellation
     abortControllerRef.current = new AbortController();
 
     try {
@@ -154,7 +170,7 @@ function App() {
               const csvLink = data.data_csv
                 ? "http://127.0.0.1:8000" + data.data_csv
                 : null;
-              // Extract folder name from package URL (e.g., "20260224_181803_tracking01")
+              // Extract folder name from package URL
               if (data.package) {
                 const parts = data.package.split("/");
                 const zipName = parts[parts.length - 1];
@@ -172,6 +188,8 @@ function App() {
               setDataCsvUrl(csvLink);
               setCurrentJobId(null);
               setLoading(false);
+              // Snapshot the params used for this run
+              setLastParams({ keypoints, area, maxAge, persistence });
             } else if (data.stage === "error") {
               throw new Error(data.message);
             }
@@ -180,7 +198,6 @@ function App() {
       }
     } catch (err) {
       if (err.name === "AbortError") {
-        // User cancelled - don't show error
         setProgress({ stage: "", current: 0, total: 0 });
       } else {
         alert("Error processing video: " + err.message);
@@ -191,14 +208,24 @@ function App() {
     }
   };
 
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOriginalFile(file);
+    await processFile(file);
+  };
+
+  const rerunWithNewParams = async () => {
+    if (!originalFile) return;
+    await processFile(originalFile, { preserveOriginalUrl: true });
+  };
+
   // Cancel ongoing processing
   const cancelProcessing = async () => {
-    // Abort the fetch request
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
     }
 
-    // Call backend to cancel job and clean up files
     if (currentJobId) {
       try {
         await fetch(`http://127.0.0.1:8000/cancel/${currentJobId}`, {
@@ -212,6 +239,8 @@ function App() {
     // Revoke blob URL since we're cancelling
     if (originalUrl) URL.revokeObjectURL(originalUrl);
     setOriginalUrl(null);
+    setOriginalFile(null);
+    setLastParams(null);
     setCurrentJobId(null);
     setLoading(false);
     setFileName("");
@@ -221,9 +250,10 @@ function App() {
 
   // Reset UI to run on another file (keeps parameter values)
   const resetForAnother = () => {
-    // Revoke blob URL to free memory
     if (originalUrl) URL.revokeObjectURL(originalUrl);
     setOriginalUrl(null);
+    setOriginalFile(null);
+    setLastParams(null);
     setProcessedUrl(null);
     setPackageUrl(null);
     setDataCsvUrl(null);
@@ -235,7 +265,6 @@ function App() {
     setSliderPos(50);
     setIsPlaying(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
-    // Optionally scroll to top for convenience
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -497,7 +526,7 @@ function App() {
             </div>
 
             <div className="actions">
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 {packageUrl && (
                   <a className="btn" href={packageUrl} download>
                     Download All (ZIP)
@@ -511,6 +540,20 @@ function App() {
                 <button className="btn" onClick={resetForAnother}>
                   Run on another file
                 </button>
+                {paramsChanged && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                    <span style={{ fontSize: "0.7rem", color: "var(--muted)", letterSpacing: "0.04em" }}>
+                      Parameters changed
+                    </span>
+                    <button
+                      className="btn"
+                      style={{ background: "var(--accent)", color: "#fff", border: "none" }}
+                      onClick={rerunWithNewParams}
+                    >
+                      Re-run with new parameters
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
             <div className="meta">

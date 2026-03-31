@@ -368,7 +368,7 @@ input[type="file"] {
 }
 .heatmap-row {
   display: grid;
-  grid-template-columns: 80px repeat(3, 1fr);
+  grid-template-columns: 80px repeat(4, 1fr);
   gap: 2px;
   cursor: pointer;
   transition: transform 0.1s;
@@ -432,6 +432,49 @@ input[type="file"] {
   font-size: 10px;
   opacity: 0.7;
   margin-left: 4px;
+}
+
+/* ===== Info Tooltips ===== */
+.info-tooltip-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+}
+.info-icon {
+  font-size: 9px;
+  color: var(--muted);
+  cursor: default;
+  line-height: 1;
+  opacity: 0.7;
+}
+.info-tooltip-wrapper:hover .info-icon {
+  opacity: 1;
+}
+.info-tooltip-text {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 8px 12px;
+  max-width: 280px;
+  width: max-content;
+  font-size: 11px;
+  color: #e5e7eb;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+  z-index: 100;
+  pointer-events: none;
+  line-height: 1.5;
+}
+.info-tooltip-wrapper:hover .info-tooltip-text {
+  display: block;
 }
 
 /* ===== Timeline ===== */

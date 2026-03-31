@@ -205,7 +205,8 @@ def compute_motion_stats(keypoint_tracks, total_frames):
     worm_motion_values = []  # One value per worm: avg movement per keypoint per frame
     head_motion_values = []  # Head (keypoint 0) motion per worm
     tail_motion_values = []  # Tail (last keypoint) motion per worm
-    per_frame_data = {}  # Per-frame motion for time series: {worm_id: {head: [...], tail: [...]}}
+    mid_motion_values = []   # Midbody (avg of 3 middle keypoints) motion per worm
+    per_frame_data = {}  # Per-frame motion for time series: {worm_id: {head: [...], tail: [...], mid: [...]}}
 
     for worm_id, kp_list in keypoint_tracks.items():
         # kp_list structure: kp_list[keypoint_idx] = list of [y,x] per frame
@@ -240,10 +241,16 @@ def compute_motion_stats(keypoint_tracks, total_frames):
         tail_distances = distances[-1]  # Shape: (num_frames-1,)
         avg_tail_motion = np.mean(tail_distances)
 
+        # Midbody motion (average of 3 middle keypoints)
+        mid_idx = num_keypoints // 2
+        mid_distances = np.mean(distances[mid_idx - 1:mid_idx + 2], axis=0)  # Shape: (num_frames-1,)
+        avg_mid_motion = float(np.mean(mid_distances))
+
         worm_ids.append(worm_id)
         worm_motion_values.append(avg_movement)
         head_motion_values.append(float(avg_head_motion))
         tail_motion_values.append(float(avg_tail_motion))
+        mid_motion_values.append(avg_mid_motion)
 
         # Store per-frame data for time series (downsample if too many frames)
         # Use a sliding window average to reduce data size
@@ -258,13 +265,19 @@ def compute_motion_stats(keypoint_tracks, total_frames):
                 float(np.mean(tail_distances[i:i+window_size]))
                 for i in range(0, num_transitions, window_size)
             ]
+            mid_downsampled = [
+                float(np.mean(mid_distances[i:i+window_size]))
+                for i in range(0, num_transitions, window_size)
+            ]
         else:
             head_downsampled = [float(x) for x in head_distances]
             tail_downsampled = [float(x) for x in tail_distances]
+            mid_downsampled = [float(x) for x in mid_distances]
 
         per_frame_data[worm_id] = {
             "head": head_downsampled,
             "tail": tail_downsampled,
+            "mid": mid_downsampled,
             "window_size": window_size
         }
 
@@ -274,6 +287,7 @@ def compute_motion_stats(keypoint_tracks, total_frames):
     worm_motion_array = np.array(worm_motion_values)
     head_motion_array = np.array(head_motion_values)
     tail_motion_array = np.array(tail_motion_values)
+    mid_motion_array = np.array(mid_motion_values)
 
     motion_stats = {
         "num_worms": len(worm_motion_values),
@@ -295,6 +309,12 @@ def compute_motion_stats(keypoint_tracks, total_frames):
         "tail_min_motion": float(np.min(tail_motion_array)),
         "tail_max_motion": float(np.max(tail_motion_array)),
         "per_worm_tail_motion": tail_motion_values,
+        # Midbody motion stats
+        "mid_mean_motion": float(np.mean(mid_motion_array)),
+        "mid_std_motion": float(np.std(mid_motion_array)),
+        "mid_min_motion": float(np.min(mid_motion_array)),
+        "mid_max_motion": float(np.max(mid_motion_array)),
+        "per_worm_mid_motion": mid_motion_values,
         # Per-frame data for time series visualization
         "per_frame_motion": per_frame_data
     }
@@ -317,17 +337,18 @@ def export_csv_files(motion_stats, output_dir, base_name):
     timeseries_path = os.path.join(output_dir, f"{base_name}_timeseries.csv")
     with open(timeseries_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['frame', 'worm_id', 'head_motion', 'tail_motion'])
+        writer.writerow(['frame', 'worm_id', 'head_motion', 'tail_motion', 'mid_motion'])
 
         per_frame = motion_stats.get('per_frame_motion', {})
         for worm_id, data in per_frame.items():
             head = data.get('head', [])
             tail = data.get('tail', [])
+            mid = data.get('mid', [])
             window_size = data.get('window_size', 1)
 
-            for i, (h, t) in enumerate(zip(head, tail)):
+            for i, (h, t, m) in enumerate(zip(head, tail, mid)):
                 frame = i * window_size
-                writer.writerow([frame, worm_id, f"{h:.6f}", f"{t:.6f}"])
+                writer.writerow([frame, worm_id, f"{h:.6f}", f"{t:.6f}", f"{m:.6f}"])
 
     print(f"Timeseries CSV saved at: {timeseries_path}")
 
@@ -336,49 +357,55 @@ def export_csv_files(motion_stats, output_dir, base_name):
     with open(summary_path, 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow([
-            'worm_id', 'overall_motion', 'head_motion', 'tail_motion'
+            'worm_id', 'overall_motion', 'head_motion', 'tail_motion', 'mid_motion'
         ])
 
         worm_ids = motion_stats.get('worm_ids', [])
         overall = motion_stats.get('per_worm_motion', [])
         head = motion_stats.get('per_worm_head_motion', [])
         tail = motion_stats.get('per_worm_tail_motion', [])
+        mid = motion_stats.get('per_worm_mid_motion', [])
 
         for i, worm_id in enumerate(worm_ids):
             writer.writerow([
                 worm_id,
                 f"{overall[i]:.6f}" if i < len(overall) else "",
                 f"{head[i]:.6f}" if i < len(head) else "",
-                f"{tail[i]:.6f}" if i < len(tail) else ""
+                f"{tail[i]:.6f}" if i < len(tail) else "",
+                f"{mid[i]:.6f}" if i < len(mid) else ""
             ])
 
         # Add aggregate row
         writer.writerow([])
         writer.writerow(['# Aggregate Statistics'])
-        writer.writerow(['metric', 'overall', 'head', 'tail'])
+        writer.writerow(['metric', 'overall', 'head', 'tail', 'mid'])
         writer.writerow([
             'mean',
             f"{motion_stats.get('mean_motion', 0):.6f}",
             f"{motion_stats.get('head_mean_motion', 0):.6f}",
-            f"{motion_stats.get('tail_mean_motion', 0):.6f}"
+            f"{motion_stats.get('tail_mean_motion', 0):.6f}",
+            f"{motion_stats.get('mid_mean_motion', 0):.6f}"
         ])
         writer.writerow([
             'std',
             f"{motion_stats.get('std_motion', 0):.6f}",
             f"{motion_stats.get('head_std_motion', 0):.6f}",
-            f"{motion_stats.get('tail_std_motion', 0):.6f}"
+            f"{motion_stats.get('tail_std_motion', 0):.6f}",
+            f"{motion_stats.get('mid_std_motion', 0):.6f}"
         ])
         writer.writerow([
             'min',
             f"{motion_stats.get('min_motion', 0):.6f}",
             f"{motion_stats.get('head_min_motion', 0):.6f}",
-            f"{motion_stats.get('tail_min_motion', 0):.6f}"
+            f"{motion_stats.get('tail_min_motion', 0):.6f}",
+            f"{motion_stats.get('mid_min_motion', 0):.6f}"
         ])
         writer.writerow([
             'max',
             f"{motion_stats.get('max_motion', 0):.6f}",
             f"{motion_stats.get('head_max_motion', 0):.6f}",
-            f"{motion_stats.get('tail_max_motion', 0):.6f}"
+            f"{motion_stats.get('tail_max_motion', 0):.6f}",
+            f"{motion_stats.get('mid_max_motion', 0):.6f}"
         ])
 
     print(f"Summary CSV saved at: {summary_path}")
