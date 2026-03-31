@@ -541,8 +541,16 @@ function App() {
                   Run on another file
                 </button>
                 {paramsChanged && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                    <span style={{ fontSize: "0.7rem", color: "var(--muted)", letterSpacing: "0.04em" }}>
+                  <div style={{ position: "relative" }}>
+                    <span style={{
+                      position: "absolute",
+                      top: "-1.2em",
+                      left: 0,
+                      fontSize: "0.7rem",
+                      color: "var(--muted)",
+                      letterSpacing: "0.04em",
+                      whiteSpace: "nowrap",
+                    }}>
                       Parameters changed
                     </span>
                     <button
