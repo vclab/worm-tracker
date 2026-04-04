@@ -4,12 +4,15 @@ from fastapi.responses import FileResponse, StreamingResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from uuid import uuid4
+from contextlib import contextmanager
+from datetime import datetime, timezone
 import shutil
 import subprocess
 import zipfile
 import json
 import queue
 import threading
+import sqlite3
 
 from app.worm_tracker import run_tracking
 
@@ -31,10 +34,114 @@ OUTPUTS = APP_DIR / "outputs"
 UPLOADS.mkdir(exist_ok=True, parents=True)
 OUTPUTS.mkdir(exist_ok=True, parents=True)
 
+# ---------------------------------------------------------------------------
+# Database
+# ---------------------------------------------------------------------------
+
+DB_PATH = APP_DIR / "jobs.db"
+
+
+def init_db():
+    with sqlite3.connect(DB_PATH) as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                job_id            TEXT PRIMARY KEY,
+                status            TEXT NOT NULL DEFAULT 'running',
+                created_at        TEXT NOT NULL,
+                finished_at       TEXT,
+                original_filename TEXT,
+                output_name       TEXT,
+                output_subfolder  TEXT,
+                params_json       TEXT,
+                error_msg         TEXT,
+                video_path        TEXT,
+                package_path      TEXT,
+                data_csv_path     TEXT,
+                motion_stats_path TEXT
+            )
+        """)
+        conn.commit()
+
+
+@contextmanager
+def get_db():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def migrate_existing_outputs():
+    """Import any output directories not yet tracked in the DB (best-effort)."""
+    if not OUTPUTS.exists():
+        return
+    with get_db() as conn:
+        existing = {r[0] for r in conn.execute("SELECT job_id FROM jobs").fetchall()}
+        for job_dir in OUTPUTS.iterdir():
+            if not job_dir.is_dir():
+                continue
+            job_id = job_dir.name
+            if job_id in existing:
+                continue
+            mp4s = list(job_dir.glob("**/*.mp4"))
+            zips = [z for z in job_dir.glob("**/*.zip") if not z.name.endswith("_data.zip")]
+            data_zips = [z for z in job_dir.glob("**/*.zip") if z.name.endswith("_data.zip")]
+            jsons = list(job_dir.glob("**/*.json"))
+            created_at = datetime.fromtimestamp(job_dir.stat().st_mtime, tz=timezone.utc).isoformat()
+            conn.execute(
+                """INSERT OR IGNORE INTO jobs
+                   (job_id, status, created_at, video_path, package_path, data_csv_path, motion_stats_path)
+                   VALUES (?, 'done', ?, ?, ?, ?, ?)""",
+                (
+                    job_id,
+                    created_at,
+                    f"/download/{job_id}/{mp4s[0].name}" if mp4s else None,
+                    f"/download/{job_id}/{zips[0].name}" if zips else None,
+                    f"/download/{job_id}/{data_zips[0].name}" if data_zips else None,
+                    f"/download/{job_id}/{jsons[0].name}" if jsons else None,
+                ),
+            )
+
+
+def _now_iso() -> str:
+    return datetime.now(tz=timezone.utc).isoformat()
+
+
+init_db()
+migrate_existing_outputs()
+
+# ---------------------------------------------------------------------------
+# API endpoints
+# ---------------------------------------------------------------------------
+
 
 @app.get("/")
 def root():
     return {"ok": True, "message": "Worm Tracker API running"}
+
+
+@app.get("/jobs")
+def list_jobs():
+    with get_db() as conn:
+        rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.delete("/jobs/{job_id}")
+def delete_job(job_id: str):
+    """Delete a completed job record and all its output files."""
+    job_dir = OUTPUTS / job_id
+    try:
+        if job_dir.exists():
+            shutil.rmtree(job_dir)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    with get_db() as conn:
+        conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+    return {"ok": True}
 
 
 @app.post("/upload")
@@ -70,6 +177,20 @@ async def upload_video(
             "saved_path": saved_path,
             "job_dir": job_dir,
         }
+
+    # Record job in DB
+    params_json = json.dumps({
+        "keypoints_per_worm": keypoints_per_worm,
+        "area_threshold": area_threshold,
+        "max_age": max_age,
+        "persistence": persistence,
+    })
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO jobs (job_id, status, created_at, original_filename, output_name, params_json)
+               VALUES (?, 'running', ?, ?, ?, ?)""",
+            (job_id, _now_iso(), file.filename, base_name, params_json),
+        )
 
     def generate_sse():
         # Queue for progress updates from tracker thread
@@ -113,7 +234,6 @@ async def upload_video(
             if cancel_event.is_set():
                 yield f"data: {json.dumps({'stage': 'cancelled', 'message': 'Processing cancelled'})}\n\n"
                 tracker_thread.join(timeout=5)
-                # Cleanup is handled by the cancel endpoint
                 with active_jobs_lock:
                     active_jobs.pop(job_id, None)
                 return
@@ -136,6 +256,17 @@ async def upload_video(
 
         # Check for errors
         if error_holder[0]:
+            # Delete upload file on error path
+            try:
+                if saved_path.exists():
+                    saved_path.unlink()
+            except Exception:
+                pass
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE jobs SET status='error', finished_at=?, error_msg=? WHERE job_id=?",
+                    (_now_iso(), str(error_holder[0]), job_id),
+                )
             yield f"data: {json.dumps({'stage': 'error', 'message': str(error_holder[0])})}\n\n"
             return
 
@@ -150,6 +281,11 @@ async def upload_video(
         csv_files = list(job_dir.glob("**/*.csv"))
 
         if not mp4s:
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE jobs SET status='error', finished_at=?, error_msg=? WHERE job_id=?",
+                    (_now_iso(), "No output video produced", job_id),
+                )
             yield f"data: {json.dumps({'stage': 'error', 'message': 'No output video produced'})}\n\n"
             return
 
@@ -180,6 +316,8 @@ async def upload_video(
         # Build ZIP package
         package_zip = src_mp4.parent / f"{output_subfolder}.zip"
         with zipfile.ZipFile(package_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+            if saved_path.exists():
+                zf.write(saved_path, arcname=f"original_{file.filename}")
             if h264_mp4.exists():
                 zf.write(h264_mp4, arcname=h264_mp4.name)
             if yaml_files:
@@ -188,6 +326,13 @@ async def upload_video(
                 zf.write(npz_files[0], arcname=npz_files[0].name)
             if json_files:
                 zf.write(json_files[0], arcname=json_files[0].name)
+
+        # Delete upload file now that it's been archived in the ZIP
+        try:
+            if saved_path.exists():
+                saved_path.unlink()
+        except Exception:
+            pass
 
         # Build CSV data ZIP for data science export
         data_zip = src_mp4.parent / f"{output_subfolder}_data.zip"
@@ -212,6 +357,30 @@ async def upload_video(
                 "output_name": base_name,
             },
         }
+
+        # Persist completed job to DB
+        with get_db() as conn:
+            conn.execute(
+                """UPDATE jobs SET
+                       status='done',
+                       finished_at=?,
+                       output_subfolder=?,
+                       video_path=?,
+                       package_path=?,
+                       data_csv_path=?,
+                       motion_stats_path=?
+                   WHERE job_id=?""",
+                (
+                    _now_iso(),
+                    output_subfolder,
+                    result["video"],
+                    result["package"],
+                    result["data_csv"],
+                    result["motion_stats"],
+                    job_id,
+                ),
+            )
+
         yield f"data: {json.dumps(result)}\n\n"
 
     return StreamingResponse(generate_sse(), media_type="text/event-stream")
@@ -270,5 +439,11 @@ def cancel_job(job_id: str):
             shutil.rmtree(job_dir)
     except Exception:
         pass
+
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE jobs SET status='cancelled', finished_at=? WHERE job_id=?",
+            (_now_iso(), job_id),
+        )
 
     return JSONResponse({"ok": True, "message": "Job cancelled and files cleaned up"})

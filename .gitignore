@@ -8,6 +8,7 @@ venv/
 env/
 app/uploads/
 app/outputs/
+app/jobs.db
 sample-data/
 
 # --- Node / React ---

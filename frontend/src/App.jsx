@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import MotionCharts from "./MotionCharts";
+import JobHistory from "./JobHistory";
 
 function App() {
   // Results
@@ -13,6 +14,7 @@ function App() {
   // UX
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState("");
+  const [historyKey, setHistoryKey] = useState(0);
 
   // Progress tracking
   const [progress, setProgress] = useState({ stage: "", current: 0, total: 0 });
@@ -172,6 +174,7 @@ function App() {
               setDataCsvUrl(csvLink);
               setCurrentJobId(null);
               setLoading(false);
+              setHistoryKey((k) => k + 1);
             } else if (data.stage === "error") {
               throw new Error(data.message);
             }
@@ -216,6 +219,7 @@ function App() {
     setLoading(false);
     setFileName("");
     setProgress({ stage: "", current: 0, total: 0 });
+    setHistoryKey((k) => k + 1);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -522,6 +526,8 @@ function App() {
             {motionStats && <MotionCharts data={motionStats} />}
           </>
         )}
+
+        <JobHistory refreshKey={historyKey} />
 
         {/* Footer */}
         <footer className="footer">
