@@ -1,11 +1,12 @@
 # Thesis/app/main.py
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from uuid import uuid4
 from contextlib import contextmanager
 from datetime import datetime, timezone
+import logging
 import shutil
 import subprocess
 import zipfile
@@ -14,7 +15,13 @@ import threading
 import sqlite3
 import time
 
-from app.worm_tracker import run_tracking
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+
+import numpy as np
+import cv2
+
+from app.worm_tracker import run_tracking, compute_motion_stats, export_csv_files, draw_tracks
 
 app = FastAPI(title="Worm Tracker API (Local)")
 
@@ -43,7 +50,9 @@ DB_PATH = APP_DIR / "jobs.db"
 
 
 def init_db():
-    with sqlite3.connect(DB_PATH) as conn:
+    with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 job_id              TEXT PRIMARY KEY,
@@ -80,7 +89,7 @@ def init_db():
 
 @contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
@@ -167,12 +176,17 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
                 str(h264_mp4),
             ],
             check=True,
+            timeout=300,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.STDOUT,
         )
         src_mp4.unlink()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        src_mp4.rename(h264_mp4)
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        if src_mp4.exists():
+            src_mp4.rename(h264_mp4)
+
+    if not h264_mp4.exists():
+        raise RuntimeError("Tracked video was not produced — FFmpeg and fallback both failed")
 
     # Copy original video into output subfolder
     original_ext = Path(original_filename).suffix
@@ -307,6 +321,11 @@ def process_job(job_id: str):
 
     # Cancelled
     if cancel_event.is_set():
+        try:
+            if saved_path.exists():
+                saved_path.unlink()
+        except Exception:
+            pass
         with get_db() as conn:
             conn.execute(
                 "UPDATE jobs SET status='cancelled', finished_at=? WHERE job_id=? AND status='processing'",
@@ -466,6 +485,216 @@ def download_file(job_id: str, filename: str):
         raise HTTPException(status_code=403, detail="Access denied")
 
     return FileResponse(matched_path, filename=safe_filename)
+
+
+def regenerate_tracked_video(subdir: Path):
+    """Re-render the tracked video from stored keypoints without re-running the tracker."""
+    subfolder = subdir.name
+
+    original_files = list(subdir.glob("*_original.*"))
+    if not original_files:
+        raise RuntimeError("Original video not found in output folder")
+    original_path = original_files[0]
+
+    npz_files = list(subdir.glob("*_keypoints.npz"))
+    if not npz_files:
+        raise RuntimeError("Keypoints file not found")
+
+    with np.load(npz_files[0]) as npz:
+        worm_ids = list(npz.keys())
+        if not worm_ids:
+            return
+        keypoint_data = {wid: npz[wid].copy() for wid in worm_ids}
+    num_frames = int(next(iter(keypoint_data.values())).shape[1])
+    num_keypoints = int(next(iter(keypoint_data.values())).shape[0])
+
+    cap = cv2.VideoCapture(str(original_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Cannot open original video: {original_path}")
+
+    fps = cap.get(cv2.CAP_PROP_FPS) or 60
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+    raw_mp4 = subdir / f"{subfolder}_raw.mp4"
+    out = cv2.VideoWriter(str(raw_mp4), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
+
+    frame_idx = 0
+    while frame_idx < num_frames:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        # Gather all worms' keypoints at this frame
+        frame_kps, frame_ids = [], []
+        for wid in worm_ids:
+            arr = keypoint_data[wid]  # (num_keypoints, num_frames, 2)
+            if frame_idx < arr.shape[1]:
+                frame_kps.append(arr[:, frame_idx, :])  # (num_keypoints, 2) [y, x]
+                frame_ids.append(wid)
+        annotated = draw_tracks(frame.copy(), frame_kps, frame_ids, num_keypoints)
+        out.write(annotated)
+        frame_idx += 1
+
+    cap.release()
+    out.release()
+
+    # Transcode to H.264, replacing existing file
+    h264_mp4 = subdir / f"{subfolder}_tracked.mp4"
+    if h264_mp4.exists():
+        h264_mp4.unlink()
+
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-y",
+                "-i", str(raw_mp4),
+                "-vcodec", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                "-preset", "veryfast",
+                "-crf", "23",
+                str(h264_mp4),
+            ],
+            check=True,
+            timeout=300,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.STDOUT,
+        )
+        raw_mp4.unlink()
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        if raw_mp4.exists():
+            raw_mp4.rename(h264_mp4)
+
+
+def _rebuild_zips(subdir: Path):
+    """Rebuild package and data ZIPs from current contents of subdir (atomic)."""
+    subfolder = subdir.name
+    h264_mp4 = next(subdir.glob("*_tracked.mp4"), None)
+    original = next(subdir.glob("*_original.*"), None)
+    yaml_file = next(subdir.glob("*.yaml"), None)
+    npz_file = next(subdir.glob("*_keypoints.npz"), None)
+    json_file = next(subdir.glob("*_motion_stats.json"), None)
+    csv_files = list(subdir.glob("*.csv"))
+
+    package_zip = subdir / f"{subfolder}.zip"
+    tmp = subdir / f"{subfolder}.zip.tmp"
+    with zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in [original, h264_mp4, yaml_file, npz_file, json_file]:
+            if f and f.exists():
+                zf.write(f, arcname=f.name)
+    tmp.rename(package_zip)
+
+    if csv_files:
+        data_zip = subdir / f"{subfolder}_data.zip"
+        tmp_data = subdir / f"{subfolder}_data.zip.tmp"
+        with zipfile.ZipFile(tmp_data, "w", zipfile.ZIP_DEFLATED) as zf:
+            for csv_file in csv_files:
+                zf.write(csv_file, arcname=csv_file.name)
+        tmp_data.rename(data_zip)
+
+
+@app.get("/jobs/{job_id}/keypoints")
+def get_keypoints(job_id: str):
+    """Return head and tail positions per worm for all frames."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT output_subfolder FROM jobs WHERE job_id=?", (job_id,)
+        ).fetchone()
+    if not row or not row["output_subfolder"]:
+        raise HTTPException(status_code=404, detail="Job not found or not completed")
+
+    subdir = OUTPUTS / job_id / row["output_subfolder"]
+    npz_files = list(subdir.glob("*_keypoints.npz"))
+    if not npz_files:
+        raise HTTPException(status_code=404, detail="Keypoints file not found")
+
+    with np.load(npz_files[0]) as npz:
+        worm_ids = list(npz.keys())
+        if not worm_ids:
+            return {"worm_ids": [], "num_frames": 0, "head_positions": {}, "tail_positions": {}}
+        num_frames = int(npz[worm_ids[0]].shape[1])
+        head_positions = {wid: npz[wid][0].tolist() for wid in worm_ids}
+        tail_positions = {wid: npz[wid][-1].tolist() for wid in worm_ids}
+
+    return {
+        "worm_ids": worm_ids,
+        "num_frames": num_frames,
+        "head_positions": head_positions,
+        "tail_positions": tail_positions,
+    }
+
+
+def _regen_and_rebuild(subdir: Path):
+    """Background task: regenerate tracked video and rebuild ZIPs."""
+    try:
+        regenerate_tracked_video(subdir)
+    except Exception as exc:
+        logger.error("Video regeneration failed for %s: %s", subdir, exc)
+    try:
+        _rebuild_zips(subdir)
+    except Exception as exc:
+        logger.error("ZIP rebuild failed for %s: %s", subdir, exc)
+
+
+@app.post("/jobs/{job_id}/flip/{worm_id}")
+def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
+    """Flip head/tail for a worm (reverse keypoint axis 0) and recompute stats."""
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT output_subfolder FROM jobs WHERE job_id=?", (job_id,)
+        ).fetchone()
+    if not row or not row["output_subfolder"]:
+        raise HTTPException(status_code=404, detail="Job not found or not completed")
+
+    subdir = OUTPUTS / job_id / row["output_subfolder"]
+    npz_files = list(subdir.glob("*_keypoints.npz"))
+    if not npz_files:
+        raise HTTPException(status_code=404, detail="Keypoints file not found")
+
+    npz_path = npz_files[0]
+    with np.load(npz_path) as npz:
+        data = {k: npz[k].copy() for k in npz.keys()}
+
+    if worm_id not in data:
+        raise HTTPException(status_code=404, detail=f"Worm {worm_id} not found in keypoints")
+
+    # Flip keypoint axis 0 (head ↔ tail)
+    data[worm_id] = data[worm_id][::-1, :, :]
+
+    # Save atomically — validate new file before overwriting original
+    tmp_npz = npz_path.with_suffix(".tmp.npz")
+    np.savez_compressed(tmp_npz, **data)
+    try:
+        with np.load(tmp_npz) as check:
+            if set(check.keys()) != set(data.keys()):
+                raise RuntimeError("NPZ key mismatch after save")
+    except Exception as exc:
+        tmp_npz.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"NPZ validation failed: {exc}")
+    tmp_npz.rename(npz_path)
+
+    # Recompute motion stats — convert arrays to list-of-lists format expected by compute_motion_stats
+    # NPZ arrays: (num_keypoints, num_frames, 2); compute_motion_stats expects {wid: [[y,x], ...] per keypoint}
+    total_frames = int(next(iter(data.values())).shape[1])
+    tracks_for_stats = {wid: [arr[i].tolist() for i in range(arr.shape[0])] for wid, arr in data.items()}
+    motion_stats = compute_motion_stats(tracks_for_stats, total_frames)
+
+    # Save updated motion stats JSON
+    json_files = list(subdir.glob("*_motion_stats.json"))
+    if motion_stats and json_files:
+        with open(json_files[0], "w") as f:
+            json.dump(motion_stats, f, indent=2)
+
+    # Regenerate CSVs
+    for csv_file in subdir.glob("*.csv"):
+        csv_file.unlink()
+    if motion_stats:
+        export_csv_files(motion_stats, str(subdir), row["output_subfolder"])
+
+    # Schedule video regeneration + ZIP rebuild after response is sent
+    background_tasks.add_task(_regen_and_rebuild, subdir)
+
+    return {"ok": True, "motion_stats": motion_stats}
 
 
 @app.post("/cancel/{job_id}")

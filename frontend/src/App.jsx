@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from "react";
 import MotionCharts from "./MotionCharts";
 import JobHistory from "./JobHistory";
+import HeadTailCorrector from "./HeadTailCorrector";
 
 function App() {
   // Results
@@ -14,6 +15,11 @@ function App() {
   // UX
   const [fileName, setFileName] = useState("");
   const [historyKey, setHistoryKey] = useState(0);
+  const [currentJobId, setCurrentJobId] = useState(null);
+  const [showHtCorrector, setShowHtCorrector] = useState(false);
+
+  // Head/tail overlay canvas (drawn over the comparison slider)
+  const htCanvasRef = useRef(null);
 
   // Video comparison slider
   const [sliderPos, setSliderPos] = useState(50); // Percentage position of divider
@@ -101,9 +107,11 @@ function App() {
     setDataCsvUrl(job.data_csv_path ? `http://127.0.0.1:8000${job.data_csv_path}` : null);
     setFileName(job.original_filename || "");
     setOutputFolderName(job.output_subfolder || "");
+    setCurrentJobId(job.job_id || null);
     setMotionStats(null);
     setSliderPos(50);
     setIsPlaying(false);
+    setShowHtCorrector(false);
     if (job.motion_stats_path) {
       fetch(`http://127.0.0.1:8000${job.motion_stats_path}`)
         .then((r) => r.json())
@@ -121,10 +129,12 @@ function App() {
     setPackageUrl(null);
     setDataCsvUrl(null);
     setOutputFolderName("");
+    setCurrentJobId(null);
     setMotionStats(null);
     setFileName("");
     setSliderPos(50);
     setIsPlaying(false);
+    setShowHtCorrector(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -290,6 +300,19 @@ function App() {
                     }}
                     muted
                   />
+                  {/* H/T overlay canvas */}
+                  {showHtCorrector && currentJobId && (
+                    <canvas
+                      ref={htCanvasRef}
+                      style={{
+                        position: "absolute",
+                        top: 0, left: 0,
+                        width: "100%", height: "100%",
+                        pointerEvents: "none",
+                        zIndex: 5,
+                      }}
+                    />
+                  )}
                   {/* Slider handle */}
                   <div
                     className="compare-slider"
@@ -350,7 +373,7 @@ function App() {
             )}
 
             <div className="actions">
-              <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {packageUrl && (
                   <a className="btn" href={packageUrl} download>
                     Download All (ZIP)
@@ -361,11 +384,36 @@ function App() {
                     Export CSV
                   </a>
                 )}
+                {currentJobId && originalUrl && (
+                  <button
+                    className="btn"
+                    onClick={() => setShowHtCorrector((v) => !v)}
+                    style={showHtCorrector ? { background: "rgba(99,102,241,0.2)", border: "1px solid #6366f1" } : {}}
+                  >
+                    {showHtCorrector ? "Hide H/T Correction" : "Head/Tail Correction"}
+                  </button>
+                )}
                 <button className="btn" onClick={resetForAnother}>
                   Run on another file
                 </button>
               </div>
             </div>
+            {/* Head/Tail Correction */}
+            {showHtCorrector && currentJobId && originalUrl && (
+              <HeadTailCorrector
+                jobId={currentJobId}
+                originalVideoRef={originalVideoRef}
+                overlayCanvasRef={htCanvasRef}
+                onMotionStatsUpdated={setMotionStats}
+                onVideoUpdated={() => {
+                  setProcessedUrl((url) => {
+                    const base = url ? url.split("?")[0] : url;
+                    return base ? `${base}?t=${Date.now()}` : url;
+                  });
+                }}
+              />
+            )}
+
             <div className="meta">
               <span>Input: {fileName || "—"}</span>
               <span>Output: {outputFolderName || "—"}</span>
