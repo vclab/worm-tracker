@@ -513,11 +513,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     pbar.close()
     cap.release()
 
-    if output_name and not output_name.lower().endswith(".mp4"):
-        output_name += ".mp4"
-
-    output_video_filename = output_name if output_name else f"{video_basename}_tracking.mp4"
-    output_video_path = os.path.join(job_output_dir, output_video_filename)
+    output_video_path = os.path.join(job_output_dir, f"{job_folder}_raw.mp4")
 
     image_files = sorted([f for f in os.listdir(frames_dir) if f.endswith(".png")])
     if not image_files:
@@ -594,13 +590,13 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         "worms_discarded_low_persistence": num_low_persistence,
         "worms_discarded_partial": num_partial
     }
-    metadata_path = os.path.join(job_output_dir, "tracking_metadata.yaml")
+    metadata_path = os.path.join(job_output_dir, f"{job_folder}_metadata.yaml")
     with open(metadata_path, 'w') as f:
         yaml.dump(metadata, f)
     print(f"Metadata saved at: {metadata_path}")
 
     # Save worm keypoints to .npz (per worm: [frame][keypoint][y,x])
-    keypoints_npz_path = os.path.join(job_output_dir, "worm_keypoints.npz")
+    keypoints_npz_path = os.path.join(job_output_dir, f"{job_folder}_keypoints.npz")
     np.savez_compressed(keypoints_npz_path,
     **{str(worm_id): np.array(frames) for worm_id, frames in filtered_tracks.items()})
     print(f"Worm keypoints saved at: {keypoints_npz_path}")
@@ -608,7 +604,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     # Compute and save motion statistics (filtered_tracks already filtered by persistence)
     motion_stats = compute_motion_stats(filtered_tracks, frame_idx)
     if motion_stats:
-        motion_stats_path = os.path.join(job_output_dir, "motion_stats.json")
+        motion_stats_path = os.path.join(job_output_dir, f"{job_folder}_motion_stats.json")
         with open(motion_stats_path, 'w') as f:
             json.dump(motion_stats, f, indent=2)
         print(f"Motion stats saved at: {motion_stats_path}")
