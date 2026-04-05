@@ -24,6 +24,7 @@ function formatDate(iso) {
 export default function JobHistory({ refreshKey = 0, onLoad }) {
   const [jobs, setJobs] = useState([]);
   const [open, setOpen] = useState(false);
+  const [actionError, setActionError] = useState(null);
   const pollRef = useRef(null);
 
   async function fetchJobs() {
@@ -59,14 +60,24 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
   }, [jobs]);
 
   async function handleCancel(jobId) {
-    await fetch(`${API}/cancel/${jobId}`, { method: "POST" });
-    fetchJobs();
+    try {
+      setActionError(null);
+      await fetch(`${API}/cancel/${jobId}`, { method: "POST" });
+      fetchJobs();
+    } catch (err) {
+      setActionError("Failed to cancel job");
+    }
   }
 
   async function handleDelete(jobId) {
     if (!confirm("Delete this job and all its output files?")) return;
-    await fetch(`${API}/jobs/${jobId}`, { method: "DELETE" });
-    fetchJobs();
+    try {
+      setActionError(null);
+      await fetch(`${API}/jobs/${jobId}`, { method: "DELETE" });
+      fetchJobs();
+    } catch (err) {
+      setActionError("Failed to delete job");
+    }
   }
 
   if (jobs.length === 0) return null;
@@ -80,6 +91,11 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
           <span style={badgeStyle}>{jobs.length}</span>
         </summary>
 
+        {actionError && (
+          <div style={{ color: "#ef4444", fontSize: "0.8rem", marginBottom: 8 }}>
+            {actionError}
+          </div>
+        )}
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "0.85rem", color: "#e5e7eb" }}>
             <thead>

@@ -19,10 +19,10 @@ function MotionCharts({ data }) {
   const activeWorm = selectedWorm !== null ? selectedWorm : data.worm_ids[0];
 
   // Get max values for heatmap scaling
-  const maxOverall = Math.max(...data.per_worm_motion);
-  const maxHead = Math.max(...data.per_worm_head_motion);
-  const maxTail = Math.max(...data.per_worm_tail_motion);
-  const globalMax = Math.max(maxOverall, maxHead, maxTail);
+  const maxOverall = data.per_worm_motion?.length ? Math.max(...data.per_worm_motion) : 0;
+  const maxHead = data.per_worm_head_motion?.length ? Math.max(...data.per_worm_head_motion) : 0;
+  const maxTail = data.per_worm_tail_motion?.length ? Math.max(...data.per_worm_tail_motion) : 0;
+  const globalMax = Math.max(maxOverall, maxHead, maxTail, 0);
 
   // Color scale function (0 to 1) -> color
   const getColor = (value, max) => {

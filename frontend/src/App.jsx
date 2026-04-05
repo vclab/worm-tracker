@@ -39,6 +39,10 @@ function App() {
   // Ref to clear the file input on reset
   const fileInputRef = useRef(null);
 
+  // Seek bar ref + motion stats load tracking (prevents stale fetch from overwriting newer job)
+  const seekBarRef = useRef(null);
+  const loadingJobRef = useRef(null);
+
   // Sync video playback between original and tracked
   const syncVideos = useCallback((source, target) => {
     if (!source || !target) return;
@@ -76,6 +80,21 @@ function App() {
     };
   }, [isDragging, handleSliderMove]);
 
+  // Keep seek bar in sync with tracked video — set up once per video URL
+  useEffect(() => {
+    const video = trackedVideoRef.current;
+    const seek = seekBarRef.current;
+    if (!video || !seek) return;
+    seek.value = 0;
+    const handler = () => {
+      if (video.duration > 0 && isFinite(video.duration)) {
+        seek.value = (video.currentTime / video.duration) * 100;
+      }
+    };
+    video.addEventListener("timeupdate", handler);
+    return () => video.removeEventListener("timeupdate", handler);
+  }, [processedUrl]);
+
   const handleSubmit = async () => {
     const files = fileInputRef.current?.files;
     if (!files || files.length === 0) return;
@@ -112,10 +131,14 @@ function App() {
     setSliderPos(50);
     setIsPlaying(false);
     setShowHtCorrector(false);
+    const thisJobId = job.job_id;
+    loadingJobRef.current = thisJobId;
     if (job.motion_stats_path) {
       fetch(`${API}${job.motion_stats_path}`)
         .then((r) => r.json())
-        .then((stats) => setMotionStats(stats))
+        .then((stats) => {
+          if (loadingJobRef.current === thisJobId) setMotionStats(stats);
+        })
         .catch((err) => console.error("Failed to load motion stats:", err));
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -348,6 +371,7 @@ function App() {
                     max="100"
                     step="0.1"
                     defaultValue="0"
+                    ref={seekBarRef}
                     onChange={(e) => {
                       const pct = e.target.value / 100;
                       if (trackedVideoRef.current) {
@@ -355,15 +379,6 @@ function App() {
                       }
                       if (originalVideoRef.current) {
                         originalVideoRef.current.currentTime = pct * originalVideoRef.current.duration;
-                      }
-                    }}
-                    ref={(el) => {
-                      if (el && trackedVideoRef.current) {
-                        trackedVideoRef.current.ontimeupdate = () => {
-                          if (trackedVideoRef.current) {
-                            el.value = (trackedVideoRef.current.currentTime / trackedVideoRef.current.duration) * 100;
-                          }
-                        };
                       }
                     }}
                   />

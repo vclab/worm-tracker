@@ -184,7 +184,7 @@ def draw_tracks(frame, worm_keypoints, worm_ids, keypoints_per_worm, partial_fla
                     partial_color if is_partial else (255, 255, 255), 1)
     return frame
 
-def compute_motion_stats(keypoint_tracks, total_frames):
+def compute_motion_stats(keypoint_tracks):
     """
     Compute motion statistics aggregated across all worms.
 
@@ -389,7 +389,7 @@ def export_csv_files(motion_stats, output_dir, base_name):
 def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max_age, show_video, output_name=None, keep_frames=False, persistence=50, progress_callback=None, cancel_check=None):
     # Create output subfolder: {timestamp}_{output_name}
     video_basename = os.path.splitext(os.path.basename(video_path))[0]
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     folder_name = output_name if output_name else "tracking01"
     job_folder = f"{timestamp}_{folder_name}"
     job_output_dir = os.path.join(output_dir, job_folder)
@@ -601,7 +601,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     print(f"Worm keypoints saved at: {keypoints_npz_path}")
 
     # Compute and save motion statistics (filtered_tracks already filtered by persistence)
-    motion_stats = compute_motion_stats(filtered_tracks, frame_idx)
+    motion_stats = compute_motion_stats(filtered_tracks)
     if motion_stats:
         motion_stats_path = os.path.join(job_output_dir, f"{job_folder}_motion_stats.json")
         with open(motion_stats_path, 'w') as f:

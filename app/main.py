@@ -286,7 +286,10 @@ def process_job(job_id: str):
             (_now_iso(), job_id),
         )
 
-    params = json.loads(job["params_json"] or "{}")
+    try:
+        params = json.loads(job["params_json"] or "{}")
+    except (json.JSONDecodeError, TypeError):
+        params = {}
     base_name = job["output_name"] or "tracking01"
     error_holder = [None]
 
@@ -683,9 +686,8 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
 
     # Recompute motion stats — convert arrays to list-of-lists format expected by compute_motion_stats
     # NPZ arrays: (num_keypoints, num_frames, 2); compute_motion_stats expects {wid: [[y,x], ...] per keypoint}
-    total_frames = int(next(iter(data.values())).shape[1])
     tracks_for_stats = {wid: [arr[i].tolist() for i in range(arr.shape[0])] for wid, arr in data.items()}
-    motion_stats = compute_motion_stats(tracks_for_stats, total_frames)
+    motion_stats = compute_motion_stats(tracks_for_stats)
 
     # Save updated motion stats JSON
     json_files = list(subdir.glob("*_motion_stats.json"))
@@ -711,8 +713,8 @@ def cancel_job(job_id: str):
     # Signal processing thread if active
     with active_jobs_lock:
         job_info = active_jobs.get(job_id)
-    if job_info:
-        job_info["cancel_event"].set()
+        if job_info:
+            job_info["cancel_event"].set()
 
     # Mark DB (only if not already terminal)
     with get_db() as conn:

@@ -65,6 +65,8 @@ export default function HeadTailCorrector({
       ctx.fillText(label, cx, cy);
     }
 
+    let ctx = null;
+
     function draw() {
       if (!running) return;
       const canvas = overlayCanvasRef?.current;
@@ -75,6 +77,7 @@ export default function HeadTailCorrector({
           (canvas.width !== canvas.offsetWidth || canvas.height !== canvas.offsetHeight)) {
         canvas.width = canvas.offsetWidth;
         canvas.height = canvas.offsetHeight;
+        ctx = null; // reset cached context after resize
       }
 
       const cw = canvas.width;
@@ -82,7 +85,7 @@ export default function HeadTailCorrector({
       const vw = video.videoWidth || cw;
       const vh = video.videoHeight || ch;
 
-      const ctx = canvas.getContext("2d");
+      if (!ctx) ctx = canvas.getContext("2d");
       ctx.clearRect(0, 0, cw, ch);
 
       if (!video.readyState) { rafRef.current = requestAnimationFrame(draw); return; }
@@ -92,7 +95,7 @@ export default function HeadTailCorrector({
       const ox = (cw - vw * scale) / 2;
       const oy = (ch - vh * scale) / 2;
 
-      const fps = video.duration > 0 ? numFrames / video.duration : 30;
+      const fps = (video.duration > 0 && isFinite(video.duration)) ? numFrames / video.duration : 30;
       const frameIdx = Math.min(Math.round(video.currentTime * fps), numFrames - 1);
 
       drawDot(ctx, headPositions[selectedWorm]?.[frameIdx], "#10b981", "H", scale, ox, oy);
