@@ -22,6 +22,11 @@ Thumbs.db
 .vscode/
 .idea/
 
+# --- PyInstaller build artifacts ---
+build/
+dist/
+frontend/dist/
+
 # --- Generated / large media ---
 *.zip
 *.mp4

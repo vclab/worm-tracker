@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from uuid import uuid4
 from contextlib import contextmanager
@@ -8,6 +9,7 @@ from datetime import datetime, timezone
 import logging
 import shutil
 import subprocess
+import sys
 import zipfile
 import json
 import threading
@@ -41,7 +43,8 @@ def _get_npz_lock(job_id: str) -> threading.Lock:
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+    allow_origins=["http://127.0.0.1:5173", "http://localhost:5173",
+                   "http://127.0.0.1:8000", "http://localhost:8000"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -51,6 +54,21 @@ UPLOADS = APP_DIR / "uploads"
 OUTPUTS = APP_DIR / "outputs"
 UPLOADS.mkdir(exist_ok=True, parents=True)
 OUTPUTS.mkdir(exist_ok=True, parents=True)
+
+# ---------------------------------------------------------------------------
+# FFmpeg — prefer bundled static binary (imageio_ffmpeg), fall back to PATH
+# ---------------------------------------------------------------------------
+
+def _resolve_ffmpeg() -> str:
+    """Return path to the ffmpeg executable to use."""
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        pass
+    return "ffmpeg"   # fall back to system PATH
+
+FFMPEG_BIN = _resolve_ffmpeg()
 
 # ---------------------------------------------------------------------------
 # Database
@@ -179,7 +197,7 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
     try:
         subprocess.run(
             [
-                "ffmpeg", "-y",
+                FFMPEG_BIN, "-y",
                 "-i", str(src_mp4),
                 "-vcodec", "libx264",
                 "-pix_fmt", "yuv420p",
@@ -418,7 +436,7 @@ _worker.start()
 # ---------------------------------------------------------------------------
 
 
-@app.get("/")
+@app.get("/api/health")
 def root():
     return {"ok": True, "message": "Worm Tracker API running"}
 
@@ -592,7 +610,7 @@ def regenerate_tracked_video(subdir: Path):
     try:
         subprocess.run(
             [
-                "ffmpeg", "-y",
+                FFMPEG_BIN, "-y",
                 "-i", str(raw_mp4),
                 "-vcodec", "libx264",
                 "-pix_fmt", "yuv420p",
@@ -792,3 +810,27 @@ def cancel_job(job_id: str):
             pass
 
     return {"ok": True, "message": "Job cancelled"}
+
+
+# ---------------------------------------------------------------------------
+# Frontend static files — served when the built dist/ folder is present.
+# In dev mode the Vite dev server handles the frontend separately.
+# In packaged/production mode FastAPI serves everything from one process.
+# Must be mounted LAST so API routes take priority.
+# ---------------------------------------------------------------------------
+
+def _find_frontend_dist() -> Path | None:
+    # PyInstaller bundle: data files land in sys._MEIPASS (_internal/ dir)
+    if getattr(sys, "frozen", False):
+        candidate = Path(sys._MEIPASS) / "frontend_dist"
+        if candidate.exists():
+            return candidate
+    # Normal run: check for a pre-built dist/ next to the project root
+    candidate = APP_DIR.parent / "frontend" / "dist"
+    if candidate.exists():
+        return candidate
+    return None
+
+_frontend_dist = _find_frontend_dist()
+if _frontend_dist:
+    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
