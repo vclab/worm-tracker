@@ -512,12 +512,16 @@ def regenerate_tracked_video(subdir: Path):
         raise RuntimeError("Keypoints file not found")
 
     with np.load(npz_files[0]) as npz:
-        worm_ids = list(npz.keys())
-        if not worm_ids:
+        all_keys = list(npz.keys())
+        retained_ids = [k for k in all_keys if not k.startswith("partial_")]
+        partial_ids = [k[len("partial_"):] for k in all_keys if k.startswith("partial_")]
+        if not all_keys:
             return
-        keypoint_data = {wid: npz[wid].copy() for wid in worm_ids}
-    num_frames = int(next(iter(keypoint_data.values())).shape[1])
-    num_keypoints = int(next(iter(keypoint_data.values())).shape[0])
+        keypoint_data = {wid: npz[wid].copy() for wid in retained_ids}
+        partial_data = {wid: npz[f"partial_{wid}"].copy() for wid in partial_ids}
+    all_data = {**keypoint_data, **partial_data}
+    num_frames = max(int(arr.shape[1]) for arr in all_data.values())
+    num_keypoints = int(next(iter(all_data.values())).shape[0])
 
     cap = cv2.VideoCapture(str(original_path))
     if not cap.isOpened():
@@ -536,13 +540,20 @@ def regenerate_tracked_video(subdir: Path):
         if not ret:
             break
         # Gather all worms' keypoints at this frame
-        frame_kps, frame_ids = [], []
-        for wid in worm_ids:
+        frame_kps, frame_ids, frame_partial = [], [], []
+        for wid in retained_ids:
             arr = keypoint_data[wid]  # (num_keypoints, num_frames, 2)
             if frame_idx < arr.shape[1]:
                 frame_kps.append(arr[:, frame_idx, :])  # (num_keypoints, 2) [y, x]
                 frame_ids.append(wid)
-        annotated = draw_tracks(frame.copy(), frame_kps, frame_ids, num_keypoints)
+                frame_partial.append(False)
+        for wid in partial_ids:
+            arr = partial_data[wid]
+            if frame_idx < arr.shape[1]:
+                frame_kps.append(arr[:, frame_idx, :])
+                frame_ids.append(wid)
+                frame_partial.append(True)
+        annotated = draw_tracks(frame.copy(), frame_kps, frame_ids, num_keypoints, frame_partial)
         out.write(annotated)
         frame_idx += 1
 
@@ -620,7 +631,8 @@ def get_keypoints(job_id: str):
         raise HTTPException(status_code=404, detail="Keypoints file not found")
 
     with np.load(npz_files[0]) as npz:
-        worm_ids = list(npz.keys())
+        # Only expose retained worm IDs — partial worms (key prefix "partial_") are not flippable
+        worm_ids = [k for k in npz.keys() if not k.startswith("partial_")]
         if not worm_ids:
             return {"worm_ids": [], "num_frames": 0, "head_positions": {}, "tail_positions": {}}
         num_frames = int(npz[worm_ids[0]].shape[1])
@@ -686,7 +698,12 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
 
     # Recompute motion stats — convert arrays to list-of-lists format expected by compute_motion_stats
     # NPZ arrays: (num_keypoints, num_frames, 2); compute_motion_stats expects {wid: [[y,x], ...] per keypoint}
-    tracks_for_stats = {wid: [arr[i].tolist() for i in range(arr.shape[0])] for wid, arr in data.items()}
+    # Exclude partial worm keys (prefix "partial_") — they are not included in motion analysis.
+    tracks_for_stats = {
+        wid: [arr[i].tolist() for i in range(arr.shape[0])]
+        for wid, arr in data.items()
+        if not wid.startswith("partial_")
+    }
     motion_stats = compute_motion_stats(tracks_for_stats)
 
     # Save updated motion stats JSON

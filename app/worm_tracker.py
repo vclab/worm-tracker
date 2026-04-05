@@ -595,9 +595,14 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     print(f"Metadata saved at: {metadata_path}")
 
     # Save worm keypoints to .npz (per worm: [frame][keypoint][y,x])
+    # Retained worms use their numeric ID as key; partial worms use "partial_{id}" prefix
+    # so regenerate_tracked_video can redraw them with the magenta edge indicator.
     keypoints_npz_path = os.path.join(job_output_dir, f"{job_folder}_keypoints.npz")
-    np.savez_compressed(keypoints_npz_path,
-    **{str(worm_id): np.array(frames) for worm_id, frames in filtered_tracks.items()})
+    npz_data = {str(worm_id): np.array(frames) for worm_id, frames in filtered_tracks.items()}
+    for worm_id, frames in keypoint_tracks.items():
+        if worm_id in partial_worm_ids:
+            npz_data[f"partial_{worm_id}"] = np.array(frames)
+    np.savez_compressed(keypoints_npz_path, **npz_data)
     print(f"Worm keypoints saved at: {keypoints_npz_path}")
 
     # Compute and save motion statistics (filtered_tracks already filtered by persistence)
