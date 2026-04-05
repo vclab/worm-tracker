@@ -316,8 +316,6 @@ function App() {
                     ref={originalVideoRef}
                     src={originalUrl}
                     style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
-                    onPlay={() => trackedVideoRef.current?.play()}
-                    onPause={() => trackedVideoRef.current?.pause()}
                     onSeeked={() => syncVideos(originalVideoRef.current, trackedVideoRef.current)}
                     onTimeUpdate={() => {
                       if (!trackedVideoRef.current?.paused) return;
@@ -331,14 +329,8 @@ function App() {
                     ref={trackedVideoRef}
                     src={processedUrl}
                     style={{ clipPath: `inset(0 0 0 ${sliderPos}%)` }}
-                    onPlay={() => {
-                      originalVideoRef.current?.play();
-                      setIsPlaying(true);
-                    }}
-                    onPause={() => {
-                      originalVideoRef.current?.pause();
-                      setIsPlaying(false);
-                    }}
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
                     onSeeked={() => syncVideos(trackedVideoRef.current, originalVideoRef.current)}
                     onTimeUpdate={() => {
                       if (!originalVideoRef.current?.paused) return;
