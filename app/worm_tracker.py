@@ -15,9 +15,6 @@ import yaml
 from datetime import datetime
 import subprocess
 
-AREA_THRESHOLD = 50
-MAX_AGE = 35
-
 def get_git_commit_hash():
     try:
         return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode().strip()
@@ -388,7 +385,6 @@ def export_csv_files(motion_stats, output_dir, base_name):
 
 def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max_age, show_video, output_name=None, keep_frames=False, persistence=50, progress_callback=None, cancel_check=None):
     # Create output subfolder: {timestamp}_{output_name}
-    video_basename = os.path.splitext(os.path.basename(video_path))[0]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     folder_name = output_name if output_name else "tracking01"
     job_folder = f"{timestamp}_{folder_name}"
@@ -403,6 +399,8 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         print(f"Error: Cannot open video {video_path}")
         cap.release()
         return None
+
+    input_fps = cap.get(cv2.CAP_PROP_FPS) or 30
 
     frame_idx = 0
     track_memory = []
@@ -526,7 +524,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         return None
 
     height, width, _ = first_image.shape
-    out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'mp4v'), 60, (width, height))
+    out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'mp4v'), input_fps, (width, height))
 
     num_images = len(image_files)
     for i, filename in enumerate(tqdm(image_files, desc="Generating video", unit="frame")):
@@ -583,7 +581,6 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
             "max_age": max_age,
             "persistence": persistence
         },
-        "output_video": output_video_path,
         "total_frames": frame_idx,
         "worms_tracked": num_retained,
         "worms_discarded_low_persistence": num_low_persistence,
@@ -625,7 +622,13 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
 
     if show_video:
         try:
-            os.startfile(output_video_path)
+            import platform
+            if platform.system() == "Darwin":
+                subprocess.Popen(["open", output_video_path])
+            elif platform.system() == "Windows":
+                os.startfile(output_video_path)
+            else:
+                subprocess.Popen(["xdg-open", output_video_path])
         except Exception as e:
             print(f"Could not open video: {e}")
 

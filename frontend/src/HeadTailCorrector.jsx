@@ -7,6 +7,7 @@ export default function HeadTailCorrector({
   overlayCanvasRef,
   onMotionStatsUpdated,
   onFlipStarted,
+  regenPending = false,
 }) {
   const [wormIds, setWormIds] = useState([]);
   const [numFrames, setNumFrames] = useState(0);
@@ -65,10 +66,11 @@ export default function HeadTailCorrector({
     }
 
     let ctx = null;
+    const canvasEl = overlayCanvasRef?.current;
 
     function draw() {
       if (!running) return;
-      const canvas = overlayCanvasRef?.current;
+      const canvas = canvasEl;
       if (!canvas) { rafRef.current = requestAnimationFrame(draw); return; }
 
       // Sync canvas resolution to its CSS-rendered size
@@ -107,14 +109,16 @@ export default function HeadTailCorrector({
     return () => {
       running = false;
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      // Clear overlay on unmount
-      const canvas = overlayCanvasRef?.current;
-      if (canvas) canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+      // Clear overlay on unmount using cached ctx if available
+      if (canvasEl) {
+        const clearCtx = ctx || canvasEl.getContext("2d");
+        clearCtx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+      }
     };
   }, [selectedWorm, headPositions, tailPositions, numFrames, originalVideoRef, overlayCanvasRef]);
 
   async function handleFlip() {
-    if (!selectedWorm || flipping) return;
+    if (!selectedWorm || flipping || regenPending) return;
     setFlipping(true);
     setFlipError(null);
     try {
@@ -171,10 +175,10 @@ export default function HeadTailCorrector({
             {wid === selectedWorm && (
               <button
                 onClick={(e) => { e.stopPropagation(); handleFlip(); }}
-                disabled={flipping}
-                style={flipBtnStyle(flipping)}
+                disabled={flipping || regenPending}
+                style={flipBtnStyle(flipping || regenPending)}
               >
-                {flipping ? "…" : "Flip"}
+                {flipping ? "…" : regenPending ? "Regen…" : "Flip"}
               </button>
             )}
           </div>

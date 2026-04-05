@@ -1,6 +1,5 @@
-# Thesis/app/main.py
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pathlib import Path
 from uuid import uuid4
@@ -28,6 +27,17 @@ app = FastAPI(title="Worm Tracker API (Local)")
 # Active processing jobs: job_id -> {"cancel_event": Event}
 active_jobs: dict[str, dict] = {}
 active_jobs_lock = threading.Lock()
+
+# Per-job locks for NPZ read-modify-write (prevents concurrent flip races)
+_npz_locks: dict[str, threading.Lock] = {}
+_npz_locks_lock = threading.Lock()
+
+
+def _get_npz_lock(job_id: str) -> threading.Lock:
+    with _npz_locks_lock:
+        if job_id not in _npz_locks:
+            _npz_locks[job_id] = threading.Lock()
+        return _npz_locks[job_id]
 
 app.add_middleware(
     CORSMiddleware,
@@ -118,14 +128,16 @@ def migrate_existing_outputs():
             data_zips = [z for z in job_dir.glob("**/*.zip") if z.name.endswith("_data.zip")]
             jsons = list(job_dir.glob("**/*.json"))
             originals = list(job_dir.glob("**/*_original.*"))
+            # Derive output_subfolder from the tracked mp4's parent directory name
+            output_subfolder = mp4s[0].parent.name if mp4s else None
             created_at = datetime.fromtimestamp(job_dir.stat().st_mtime, tz=timezone.utc).isoformat()
             conn.execute(
                 """INSERT OR IGNORE INTO jobs
-                   (job_id, status, created_at, video_path, original_video_path,
+                   (job_id, status, created_at, output_subfolder, video_path, original_video_path,
                     package_path, data_csv_path, motion_stats_path)
-                   VALUES (?, 'done', ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, 'done', ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    job_id, created_at,
+                    job_id, created_at, output_subfolder,
                     f"/download/{job_id}/{mp4s[0].name}" if mp4s else None,
                     f"/download/{job_id}/{originals[0].name}" if originals else None,
                     f"/download/{job_id}/{zips[0].name}" if zips else None,
@@ -205,9 +217,10 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
     except Exception:
         pass
 
-    # Build main ZIP
+    # Build main ZIP (atomic: write to .tmp then rename)
     package_zip = src_mp4.parent / f"{output_subfolder}.zip"
-    with zipfile.ZipFile(package_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+    tmp_zip = package_zip.with_suffix(".zip.tmp")
+    with zipfile.ZipFile(tmp_zip, "w", zipfile.ZIP_DEFLATED) as zf:
         if original_in_output and original_in_output.exists():
             zf.write(original_in_output, arcname=original_in_output.name)
         if h264_mp4.exists():
@@ -218,13 +231,16 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
             zf.write(npz_files[0], arcname=npz_files[0].name)
         if json_files:
             zf.write(json_files[0], arcname=json_files[0].name)
+    tmp_zip.rename(package_zip)
 
-    # Build CSV data ZIP
+    # Build CSV data ZIP (atomic)
     data_zip = src_mp4.parent / f"{output_subfolder}_data.zip"
     if csv_files:
-        with zipfile.ZipFile(data_zip, "w", zipfile.ZIP_DEFLATED) as zf:
+        tmp_data_zip = data_zip.with_suffix(".zip.tmp")
+        with zipfile.ZipFile(tmp_data_zip, "w", zipfile.ZIP_DEFLATED) as zf:
             for csv_file in csv_files:
                 zf.write(csv_file, arcname=csv_file.name)
+        tmp_data_zip.rename(data_zip)
 
     motion_stats_file = json_files[0] if json_files else None
     original_video_path = (
@@ -417,6 +433,12 @@ def list_jobs():
 @app.delete("/jobs/{job_id}")
 def delete_job(job_id: str):
     """Delete a job record, its output files, and any leftover upload file."""
+    # Signal cancellation if the job is actively processing
+    with active_jobs_lock:
+        job_info = active_jobs.get(job_id)
+        if job_info:
+            job_info["cancel_event"].set()
+
     with get_db() as conn:
         row = conn.execute(
             "SELECT original_filename FROM jobs WHERE job_id=?", (job_id,)
@@ -535,31 +557,32 @@ def regenerate_tracked_video(subdir: Path):
     raw_mp4 = subdir / f"{subfolder}_raw.mp4"
     out = cv2.VideoWriter(str(raw_mp4), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
 
-    frame_idx = 0
-    while frame_idx < num_frames:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        # Gather all worms' keypoints at this frame
-        frame_kps, frame_ids, frame_partial = [], [], []
-        for wid in retained_ids:
-            arr = keypoint_data[wid]  # (num_keypoints, num_frames, 2)
-            if frame_idx < arr.shape[1]:
-                frame_kps.append(arr[:, frame_idx, :])  # (num_keypoints, 2) [y, x]
-                frame_ids.append(wid)
-                frame_partial.append(False)
-        for wid in partial_ids:
-            arr = partial_data[wid]
-            if frame_idx < arr.shape[1]:
-                frame_kps.append(arr[:, frame_idx, :])
-                frame_ids.append(wid)
-                frame_partial.append(True)
-        annotated = draw_tracks(frame.copy(), frame_kps, frame_ids, num_keypoints, frame_partial)
-        out.write(annotated)
-        frame_idx += 1
-
-    cap.release()
-    out.release()
+    try:
+        frame_idx = 0
+        while frame_idx < num_frames:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            # Gather all worms' keypoints at this frame
+            frame_kps, frame_ids, frame_partial = [], [], []
+            for wid in retained_ids:
+                arr = keypoint_data[wid]  # (num_keypoints, num_frames, 2)
+                if frame_idx < arr.shape[1]:
+                    frame_kps.append(arr[:, frame_idx, :])  # (num_keypoints, 2) [y, x]
+                    frame_ids.append(wid)
+                    frame_partial.append(False)
+            for wid in partial_ids:
+                arr = partial_data[wid]
+                if frame_idx < arr.shape[1]:
+                    frame_kps.append(arr[:, frame_idx, :])
+                    frame_ids.append(wid)
+                    frame_partial.append(True)
+            annotated = draw_tracks(frame.copy(), frame_kps, frame_ids, num_keypoints, frame_partial)
+            out.write(annotated)
+            frame_idx += 1
+    finally:
+        cap.release()
+        out.release()
 
     # Transcode to H.264, replacing existing file
     h264_mp4 = subdir / f"{subfolder}_tracked.mp4"
@@ -636,7 +659,7 @@ def get_keypoints(job_id: str):
         worm_ids = [k for k in npz.keys() if not k.startswith("partial_")]
         if not worm_ids:
             return {"worm_ids": [], "num_frames": 0, "head_positions": {}, "tail_positions": {}}
-        num_frames = int(npz[worm_ids[0]].shape[1])
+        num_frames = max(int(npz[wid].shape[1]) for wid in worm_ids)
         head_positions = {wid: npz[wid][0].tolist() for wid in worm_ids}
         tail_positions = {wid: npz[wid][-1].tolist() for wid in worm_ids}
 
@@ -681,26 +704,28 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=404, detail="Keypoints file not found")
 
     npz_path = npz_files[0]
-    with np.load(npz_path) as npz:
-        data = {k: npz[k].copy() for k in npz.keys()}
+    npz_lock = _get_npz_lock(job_id)
+    with npz_lock:
+        with np.load(npz_path) as npz:
+            data = {k: npz[k].copy() for k in npz.keys()}
 
-    if worm_id not in data:
-        raise HTTPException(status_code=404, detail=f"Worm {worm_id} not found in keypoints")
+        if worm_id not in data:
+            raise HTTPException(status_code=404, detail=f"Worm {worm_id} not found in keypoints")
 
-    # Flip keypoint axis 0 (head ↔ tail)
-    data[worm_id] = data[worm_id][::-1, :, :]
+        # Flip keypoint axis 0 (head ↔ tail)
+        data[worm_id] = data[worm_id][::-1, :, :]
 
-    # Save atomically — validate new file before overwriting original
-    tmp_npz = npz_path.with_suffix(".tmp.npz")
-    np.savez_compressed(tmp_npz, **data)
-    try:
-        with np.load(tmp_npz) as check:
-            if set(check.keys()) != set(data.keys()):
-                raise RuntimeError("NPZ key mismatch after save")
-    except Exception as exc:
-        tmp_npz.unlink(missing_ok=True)
-        raise HTTPException(status_code=500, detail=f"NPZ validation failed: {exc}")
-    tmp_npz.rename(npz_path)
+        # Save atomically — validate new file before overwriting original
+        tmp_npz = npz_path.with_suffix(".tmp.npz")
+        np.savez_compressed(tmp_npz, **data)
+        try:
+            with np.load(tmp_npz) as check:
+                if set(check.keys()) != set(data.keys()):
+                    raise RuntimeError("NPZ key mismatch after save")
+        except Exception as exc:
+            tmp_npz.unlink(missing_ok=True)
+            raise HTTPException(status_code=500, detail=f"NPZ validation failed: {exc}")
+        tmp_npz.rename(npz_path)
 
     # Recompute motion stats — convert arrays to list-of-lists format expected by compute_motion_stats
     # NPZ arrays: (num_keypoints, num_frames, 2); compute_motion_stats expects {wid: [[y,x], ...] per keypoint}
@@ -766,4 +791,4 @@ def cancel_job(job_id: str):
         except Exception:
             pass
 
-    return JSONResponse({"ok": True, "message": "Job cancelled"})
+    return {"ok": True, "message": "Job cancelled"}

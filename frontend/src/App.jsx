@@ -47,7 +47,7 @@ function App() {
   // Sync video playback between original and tracked
   const syncVideos = useCallback((source, target) => {
     if (!source || !target) return;
-    if (Math.abs(source.currentTime - target.currentTime) > 0.1) {
+    if (Math.abs(source.currentTime - target.currentTime) > 0.05) {
       target.currentTime = source.currentTime;
     }
   }, []);
@@ -97,7 +97,7 @@ function App() {
             return base ? `${base}?t=${Date.now()}` : url;
           });
         }
-      } catch (_) {}
+      } catch { /* ignore fetch errors during poll */ }
     }, 2000);
     return () => clearInterval(id);
   }, [regenPending, currentJobId]);
@@ -462,6 +462,7 @@ function App() {
                 overlayCanvasRef={htCanvasRef}
                 onMotionStatsUpdated={setMotionStats}
                 onFlipStarted={() => setRegenPending(true)}
+                regenPending={regenPending}
               />
             )}
 

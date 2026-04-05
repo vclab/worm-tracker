@@ -45,9 +45,9 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
     }
   }, [refreshKey]);
 
-  // Poll every 2s while any job is pending or processing
+  // Poll every 2s while any job is pending, processing, or regenerating
   useEffect(() => {
-    const hasActive = jobs.some((j) => j.status === "pending" || j.status === "processing");
+    const hasActive = jobs.some((j) => j.status === "pending" || j.status === "processing" || j.regen_pending);
     if (hasActive && !pollRef.current) {
       pollRef.current = setInterval(fetchJobs, 2000);
     } else if (!hasActive && pollRef.current) {
@@ -59,13 +59,18 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
     };
   }, [jobs]);
 
+  function showError(msg) {
+    setActionError(msg);
+    setTimeout(() => setActionError(null), 5000);
+  }
+
   async function handleCancel(jobId) {
     try {
       setActionError(null);
       await fetch(`${API}/cancel/${jobId}`, { method: "POST" });
       fetchJobs();
-    } catch (err) {
-      setActionError("Failed to cancel job");
+    } catch {
+      showError("Failed to cancel job");
     }
   }
 
@@ -75,8 +80,8 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
       setActionError(null);
       await fetch(`${API}/jobs/${jobId}`, { method: "DELETE" });
       fetchJobs();
-    } catch (err) {
-      setActionError("Failed to delete job");
+    } catch {
+      showError("Failed to delete job");
     }
   }
 
@@ -143,18 +148,24 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
                     </td>
                     <td style={td}>
                       {job.status === "done" && (
-                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
                           {onLoad && (
                             <button onClick={() => onLoad(job)} style={btnPrimary}>View</button>
                           )}
-                          {job.video_path && (
-                            <a href={`${API}${job.video_path}`} download style={linkStyle}>Video</a>
-                          )}
-                          {job.package_path && (
-                            <a href={`${API}${job.package_path}`} download style={linkStyle}>ZIP</a>
-                          )}
-                          {job.data_csv_path && (
-                            <a href={`${API}${job.data_csv_path}`} download style={linkStyle}>CSV</a>
+                          {job.regen_pending ? (
+                            <span style={{ fontSize: "0.75rem", color: "#6366f1", fontStyle: "italic" }}>Regenerating…</span>
+                          ) : (
+                            <>
+                              {job.video_path && (
+                                <a href={`${API}${job.video_path}`} download style={linkStyle}>Video</a>
+                              )}
+                              {job.package_path && (
+                                <a href={`${API}${job.package_path}`} download style={linkStyle}>ZIP</a>
+                              )}
+                              {job.data_csv_path && (
+                                <a href={`${API}${job.data_csv_path}`} download style={linkStyle}>CSV</a>
+                              )}
+                            </>
                           )}
                         </div>
                       )}

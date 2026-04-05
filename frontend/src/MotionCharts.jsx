@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   LineChart,
   Line,
@@ -12,6 +12,10 @@ import {
 
 function MotionCharts({ data }) {
   const [selectedWorm, setSelectedWorm] = useState(null);
+
+  useEffect(() => {
+    setSelectedWorm(null);
+  }, [data]);
 
   if (!data || !data.worm_ids || data.worm_ids.length === 0) return null;
 
