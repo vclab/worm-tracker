@@ -2,11 +2,12 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import MotionCharts from "./MotionCharts";
 import JobHistory from "./JobHistory";
 import HeadTailCorrector from "./HeadTailCorrector";
+import { API } from "./api";
 
 function App() {
   // Results
   const [processedUrl, setProcessedUrl] = useState(null); // MP4 (H.264) to view
-  const [originalUrl, setOriginalUrl] = useState(null); // Blob URL for original video
+  const [originalUrl, setOriginalUrl] = useState(null); // Server URL for original video
   const [packageUrl, setPackageUrl] = useState(null); // ZIP with video+yaml+npz
   const [dataCsvUrl, setDataCsvUrl] = useState(null); // CSV data ZIP for export
   const [outputFolderName, setOutputFolderName] = useState(""); // e.g., "20260224_181803_tracking01"
@@ -87,7 +88,7 @@ function App() {
       formData.append("max_age", maxAge);
       formData.append("persistence", persistence);
       try {
-        await fetch("http://127.0.0.1:8000/upload", { method: "POST", body: formData });
+        await fetch(`${API}/upload`, { method: "POST", body: formData });
       } catch (err) {
         alert(`Failed to queue ${file.name}: ${err.message}`);
       }
@@ -100,11 +101,10 @@ function App() {
 
   // Load a completed job from history into the results view
   const loadFromHistory = (job) => {
-    if (originalUrl) URL.revokeObjectURL(originalUrl);
-    setOriginalUrl(job.original_video_path ? `http://127.0.0.1:8000${job.original_video_path}` : null);
-    setProcessedUrl(job.video_path ? `http://127.0.0.1:8000${job.video_path}` : null);
-    setPackageUrl(job.package_path ? `http://127.0.0.1:8000${job.package_path}` : null);
-    setDataCsvUrl(job.data_csv_path ? `http://127.0.0.1:8000${job.data_csv_path}` : null);
+    setOriginalUrl(job.original_video_path ? `${API}${job.original_video_path}` : null);
+    setProcessedUrl(job.video_path ? `${API}${job.video_path}` : null);
+    setPackageUrl(job.package_path ? `${API}${job.package_path}` : null);
+    setDataCsvUrl(job.data_csv_path ? `${API}${job.data_csv_path}` : null);
     setFileName(job.original_filename || "");
     setOutputFolderName(job.output_subfolder || "");
     setCurrentJobId(job.job_id || null);
@@ -113,17 +113,16 @@ function App() {
     setIsPlaying(false);
     setShowHtCorrector(false);
     if (job.motion_stats_path) {
-      fetch(`http://127.0.0.1:8000${job.motion_stats_path}`)
+      fetch(`${API}${job.motion_stats_path}`)
         .then((r) => r.json())
         .then((stats) => setMotionStats(stats))
-        .catch(() => {});
+        .catch((err) => console.error("Failed to load motion stats:", err));
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   // Reset results view (keeps parameter values)
   const resetForAnother = () => {
-    if (originalUrl) URL.revokeObjectURL(originalUrl);
     setOriginalUrl(null);
     setProcessedUrl(null);
     setPackageUrl(null);
@@ -168,7 +167,7 @@ function App() {
               className="input"
               type="number"
               value={keypoints}
-              onChange={(e) => setKeypoints(e.target.value)}
+              onChange={(e) => setKeypoints(Number(e.target.value))}
               min={1}
             />
           </div>
@@ -178,7 +177,7 @@ function App() {
               className="input"
               type="number"
               value={area}
-              onChange={(e) => setArea(e.target.value)}
+              onChange={(e) => setArea(Number(e.target.value))}
               min={0}
             />
           </div>
@@ -188,7 +187,7 @@ function App() {
               className="input"
               type="number"
               value={maxAge}
-              onChange={(e) => setMaxAge(e.target.value)}
+              onChange={(e) => setMaxAge(Number(e.target.value))}
               min={0}
             />
           </div>
@@ -198,7 +197,7 @@ function App() {
               className="input"
               type="number"
               value={persistence}
-              onChange={(e) => setPersistence(e.target.value)}
+              onChange={(e) => setPersistence(Number(e.target.value))}
               min={1}
             />
           </div>

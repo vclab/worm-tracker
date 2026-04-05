@@ -290,9 +290,16 @@ def process_job(job_id: str):
     base_name = job["output_name"] or "tracking01"
     error_holder = [None]
 
+    _last_progress_write = [0.0]
+
     def progress_callback(stage, current, total):
         if cancel_event.is_set():
             return
+        now = time.monotonic()
+        # Write at most once per second to avoid hammering the DB at high frame rates
+        if now - _last_progress_write[0] < 1.0 and current < total:
+            return
+        _last_progress_write[0] = now
         pct = int(current / total * 100) if total > 0 else 0
         with get_db() as conn:
             conn.execute(
@@ -375,7 +382,8 @@ def queue_worker():
                 process_job(row["job_id"])
             else:
                 time.sleep(2)
-        except Exception:
+        except Exception as exc:
+            logger.error("Queue worker error: %s", exc, exc_info=True)
             time.sleep(2)
 
 

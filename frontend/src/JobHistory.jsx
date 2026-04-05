@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-
-const API = "http://127.0.0.1:8000";
+import { API } from "./api";
 
 const STATUS_STYLES = {
   done:       { color: "#10b981", label: "Done" },
@@ -31,8 +30,8 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
     try {
       const res = await fetch(`${API}/jobs`);
       if (res.ok) setJobs(await res.json());
-    } catch {
-      // server offline
+    } catch (err) {
+      console.error("Failed to fetch jobs:", err);
     }
   }
 

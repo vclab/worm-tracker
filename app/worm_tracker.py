@@ -576,7 +576,6 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         "git_version": get_git_commit_hash(),
         "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "input_file": original_filename,
-        "input_path": video_path,
         "output_name": output_name,
         "parameters": {
             "keypoints": keypoints_per_worm,

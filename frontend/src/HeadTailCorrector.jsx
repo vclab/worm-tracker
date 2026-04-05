@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-
-const API = "http://127.0.0.1:8000";
+import { API } from "./api";
 
 export default function HeadTailCorrector({
   jobId,
@@ -37,7 +36,7 @@ export default function HeadTailCorrector({
       .then((data) => {
         if (data.worm_ids?.length > 0) setSelectedWorm(data.worm_ids[0]);
       })
-      .catch(() => {});
+      .catch((err) => console.error("Failed to load keypoints:", err));
   }, [jobId]);
 
   // Draw H/T dots on the overlay canvas using object-fit:contain scaling
