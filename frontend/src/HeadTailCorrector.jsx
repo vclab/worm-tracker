@@ -6,7 +6,7 @@ export default function HeadTailCorrector({
   originalVideoRef,
   overlayCanvasRef,
   onMotionStatsUpdated,
-  onVideoUpdated,
+  onFlipStarted,
 }) {
   const [wormIds, setWormIds] = useState([]);
   const [numFrames, setNumFrames] = useState(0);
@@ -15,7 +15,6 @@ export default function HeadTailCorrector({
   const [selectedWorm, setSelectedWorm] = useState(null);
   const [flipping, setFlipping] = useState(false);
   const [flipError, setFlipError] = useState(null);
-  const [pendingReload, setPendingReload] = useState(false);
   const rafRef = useRef(null);
 
   function fetchKeypoints() {
@@ -134,18 +133,13 @@ export default function HeadTailCorrector({
         if (data.motion_stats && onMotionStatsUpdated) {
           onMotionStatsUpdated(data.motion_stats);
         }
-        setPendingReload(true);
+        if (onFlipStarted) onFlipStarted();
       }
     } catch (e) {
       setFlipError(e.message || "Network error");
     } finally {
       setFlipping(false);
     }
-  }
-
-  function handleReloadVideo() {
-    setPendingReload(false);
-    if (onVideoUpdated) onVideoUpdated();
   }
 
   if (!jobId || wormIds.length === 0) return null;
@@ -164,16 +158,6 @@ export default function HeadTailCorrector({
       {flipError && (
         <div style={{ fontSize: "0.8rem", color: "#ef4444", marginBottom: 8 }}>
           Error: {flipError}
-        </div>
-      )}
-      {pendingReload && (
-        <div style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: "0.8rem", color: "#9ca3af" }}>
-            Video is regenerating in the background.
-          </span>
-          <button onClick={handleReloadVideo} style={reloadBtnStyle}>
-            Reload tracked video
-          </button>
         </div>
       )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -248,13 +232,3 @@ function flipBtnStyle(disabled) {
   };
 }
 
-const reloadBtnStyle = {
-  background: "#6366f1",
-  border: "none",
-  borderRadius: 5,
-  color: "#fff",
-  cursor: "pointer",
-  padding: "4px 12px",
-  fontSize: "0.8rem",
-  fontWeight: 600,
-};

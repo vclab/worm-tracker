@@ -308,6 +308,11 @@ input[type="file"] {
   }
 }
 
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 /* ===== Video ===== */
 .player {
   margin-top: 16px;

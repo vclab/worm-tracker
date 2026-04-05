@@ -79,6 +79,7 @@ def init_db():
             ("started_at", "TEXT"),
             ("progress", "INTEGER DEFAULT 0"),
             ("progress_stage", "TEXT"),
+            ("regen_pending", "INTEGER NOT NULL DEFAULT 0"),
         ]:
             try:
                 conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {typedef}")
@@ -647,8 +648,8 @@ def get_keypoints(job_id: str):
     }
 
 
-def _regen_and_rebuild(subdir: Path):
-    """Background task: regenerate tracked video and rebuild ZIPs."""
+def _regen_and_rebuild(subdir: Path, job_id: str):
+    """Background task: regenerate tracked video and rebuild ZIPs, then clear regen_pending."""
     try:
         regenerate_tracked_video(subdir)
     except Exception as exc:
@@ -657,6 +658,11 @@ def _regen_and_rebuild(subdir: Path):
         _rebuild_zips(subdir)
     except Exception as exc:
         logger.error("ZIP rebuild failed for %s: %s", subdir, exc)
+    try:
+        with get_db() as conn:
+            conn.execute("UPDATE jobs SET regen_pending=0 WHERE job_id=?", (job_id,))
+    except Exception as exc:
+        logger.error("Failed to clear regen_pending for %s: %s", job_id, exc)
 
 
 @app.post("/jobs/{job_id}/flip/{worm_id}")
@@ -718,8 +724,10 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
     if motion_stats:
         export_csv_files(motion_stats, str(subdir), row["output_subfolder"])
 
-    # Schedule video regeneration + ZIP rebuild after response is sent
-    background_tasks.add_task(_regen_and_rebuild, subdir)
+    # Mark job as regenerating, then schedule video + ZIP rebuild after response is sent
+    with get_db() as conn:
+        conn.execute("UPDATE jobs SET regen_pending=1 WHERE job_id=?", (job_id,))
+    background_tasks.add_task(_regen_and_rebuild, subdir, job_id)
 
     return {"ok": True, "motion_stats": motion_stats}
 

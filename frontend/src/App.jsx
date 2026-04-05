@@ -18,6 +18,7 @@ function App() {
   const [historyKey, setHistoryKey] = useState(0);
   const [currentJobId, setCurrentJobId] = useState(null);
   const [showHtCorrector, setShowHtCorrector] = useState(false);
+  const [regenPending, setRegenPending] = useState(false);
 
   // Head/tail overlay canvas (drawn over the comparison slider)
   const htCanvasRef = useRef(null);
@@ -80,6 +81,27 @@ function App() {
     };
   }, [isDragging, handleSliderMove]);
 
+  // Poll while a regeneration is in progress, then auto-reload the video
+  useEffect(() => {
+    if (!regenPending || !currentJobId) return;
+    const id = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/jobs`);
+        if (!res.ok) return;
+        const jobs = await res.json();
+        const job = jobs.find((j) => j.job_id === currentJobId);
+        if (job && !job.regen_pending) {
+          setRegenPending(false);
+          setProcessedUrl((url) => {
+            const base = url ? url.split("?")[0] : url;
+            return base ? `${base}?t=${Date.now()}` : url;
+          });
+        }
+      } catch (_) {}
+    }, 2000);
+    return () => clearInterval(id);
+  }, [regenPending, currentJobId]);
+
   // Keep seek bar in sync with tracked video — set up once per video URL
   useEffect(() => {
     const video = trackedVideoRef.current;
@@ -131,6 +153,7 @@ function App() {
     setSliderPos(50);
     setIsPlaying(false);
     setShowHtCorrector(false);
+    setRegenPending(job.regen_pending ? true : false);
     const thisJobId = job.job_id;
     loadingJobRef.current = thisJobId;
     if (job.motion_stats_path) {
@@ -157,6 +180,7 @@ function App() {
     setSliderPos(50);
     setIsPlaying(false);
     setShowHtCorrector(false);
+    setRegenPending(false);
     if (fileInputRef.current) fileInputRef.current.value = "";
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -387,16 +411,34 @@ function App() {
             )}
 
             <div className="actions">
+              {regenPending && (
+                <div style={{ fontSize: "0.8rem", color: "#6366f1", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "#6366f1", animation: "pulse 1.2s infinite" }} />
+                  Regenerating outputs… downloads will be available when complete.
+                </div>
+              )}
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 {packageUrl && (
-                  <a className="btn" href={packageUrl} download>
-                    Download All (ZIP)
-                  </a>
+                  regenPending ? (
+                    <span className="btn" style={{ opacity: 0.4, cursor: "not-allowed", pointerEvents: "none" }}>
+                      Download All (ZIP)
+                    </span>
+                  ) : (
+                    <a className="btn" href={packageUrl} download>
+                      Download All (ZIP)
+                    </a>
+                  )
                 )}
                 {dataCsvUrl && (
-                  <a className="btn" href={dataCsvUrl} download>
-                    Export CSV
-                  </a>
+                  regenPending ? (
+                    <span className="btn" style={{ opacity: 0.4, cursor: "not-allowed", pointerEvents: "none" }}>
+                      Export CSV
+                    </span>
+                  ) : (
+                    <a className="btn" href={dataCsvUrl} download>
+                      Export CSV
+                    </a>
+                  )
                 )}
                 {currentJobId && originalUrl && (
                   <button
@@ -419,12 +461,7 @@ function App() {
                 originalVideoRef={originalVideoRef}
                 overlayCanvasRef={htCanvasRef}
                 onMotionStatsUpdated={setMotionStats}
-                onVideoUpdated={() => {
-                  setProcessedUrl((url) => {
-                    const base = url ? url.split("?")[0] : url;
-                    return base ? `${base}?t=${Date.now()}` : url;
-                  });
-                }}
+                onFlipStarted={() => setRegenPending(true)}
               />
             )}
 
