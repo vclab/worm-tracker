@@ -135,10 +135,36 @@ Press `Ctrl+C` in both terminals.
 | `*_tracked.mp4` | H.264 video | Annotated video with colored skeleton keypoints and worm IDs |
 | `*_original.*` | original format | Copy of the input video |
 | `*_metadata.yaml` | YAML | Git version, timestamp, parameters, frame count |
-| `*_keypoints.npz` | NumPy archive | Per-worm arrays of shape `(keypoints, frames, 2)` — `[y, x]` coordinates |
+| `*_keypoints.npz` | NumPy archive | Per-worm keypoint data — see details below |
 | `*_motion_stats.json` | JSON | Per-worm motion values (overall, head, tail) and aggregate stats |
 | `*_summary.csv` | CSV | One row per worm: mean motion values |
 | `*_timeseries.csv` | CSV | One row per frame window: per-worm head/tail motion over time |
+
+### Keypoints NPZ format
+
+The NPZ file contains one NumPy array per worm, loadable with `np.load()`:
+
+```python
+import numpy as np
+
+with np.load("*_keypoints.npz") as npz:
+    print(list(npz.keys()))  # e.g. ['0', '1', 'partial_2', 'partial_3']
+    arr = npz["0"]           # shape: (num_keypoints, num_frames, 2)
+    y, x = arr[0, 0]         # [y, x] position of keypoint 0 at frame 0
+```
+
+**Array shape:** `(num_keypoints, num_frames, 2)` — axis 0 is keypoints along the skeleton (index 0 = head, index -1 = tail), axis 1 is frames, axis 2 is `[y, x]` pixel coordinates.
+
+**Key naming convention:**
+
+| Key pattern | Description |
+|---|---|
+| `"0"`, `"1"`, `"2"`, … | Fully retained worms — tracked for at least `persistence` frames and never touched a frame edge. Included in motion stats and CSV output. |
+| `"partial_0"`, `"partial_2"`, … | Partial worms — touched one or more frame edges at some point and are therefore excluded from motion analysis. Stored for completeness and drawn in the annotated video with a distinct border colour. |
+
+The numeric ID in a partial key matches the tracker's internal worm ID. A worm with key `"partial_5"` was assigned ID 5 during tracking.
+
+**Head/tail orientation:** keypoint index 0 is the head (wider end of the skeleton) and index -1 is the tail (narrower end). This orientation can be corrected per-worm via the Head/Tail Correction tool in the UI, which reverses axis 0 in-place and regenerates all downstream outputs.
 
 ---
 
