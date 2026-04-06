@@ -44,6 +44,18 @@ function App() {
   const seekBarRef = useRef(null);
   const loadingJobRef = useRef(null);
 
+  // Heartbeat — tells the server the browser is still open so it doesn't
+  // shut itself down. Only active in the packaged app (API is same-origin).
+  useEffect(() => {
+    // Only send heartbeats when the API is same-origin (packaged mode).
+    // In dev mode API is a different origin and the server doesn't need this.
+    if (API !== "") return;
+    const send = () => fetch(`${API}/api/heartbeat`, { method: "POST" }).catch(() => {});
+    send(); // immediate ping on load
+    const id = setInterval(send, 5000);
+    return () => clearInterval(id);
+  }, []);
+
   // Sync video playback between original and tracked
   const syncVideos = useCallback((source, target) => {
     if (!source || !target) return;

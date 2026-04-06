@@ -63,9 +63,12 @@ def _resolve_ffmpeg() -> str:
     """Return path to the ffmpeg executable to use."""
     try:
         import imageio_ffmpeg
-        return imageio_ffmpeg.get_ffmpeg_exe()
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        logger.info("Using bundled ffmpeg: %s", exe)
+        return exe
     except Exception:
         pass
+    logger.warning("imageio_ffmpeg not available — falling back to system ffmpeg on PATH")
     return "ffmpeg"   # fall back to system PATH
 
 FFMPEG_BIN = _resolve_ffmpeg()
@@ -432,6 +435,34 @@ _worker = threading.Thread(target=queue_worker, daemon=True)
 _worker.start()
 
 # ---------------------------------------------------------------------------
+# Browser-presence watchdog (packaged app only)
+# Shuts the server down when the browser tab has been closed for > 20 s.
+# A 30 s startup grace period prevents shutdown before the page has loaded.
+# ---------------------------------------------------------------------------
+
+_HEARTBEAT_TIMEOUT   = 20   # seconds of silence → shutdown
+_HEARTBEAT_GRACE     = 30   # seconds after startup before watchdog activates
+_last_heartbeat      = time.monotonic()
+_watchdog_active     = False   # set to True only when running as a bundle
+
+
+def _heartbeat_watchdog() -> None:
+    time.sleep(_HEARTBEAT_GRACE)
+    while True:
+        time.sleep(5)
+        if time.monotonic() - _last_heartbeat > _HEARTBEAT_TIMEOUT:
+            logger.info("No browser heartbeat for %ds — shutting down.", _HEARTBEAT_TIMEOUT)
+            import os, signal
+            os.kill(os.getpid(), signal.SIGTERM)
+            return
+
+
+if getattr(sys, "frozen", False):
+    _watchdog_active = True
+    _wdog = threading.Thread(target=_heartbeat_watchdog, daemon=True)
+    _wdog.start()
+
+# ---------------------------------------------------------------------------
 # API endpoints
 # ---------------------------------------------------------------------------
 
@@ -439,6 +470,13 @@ _worker.start()
 @app.get("/api/health")
 def root():
     return {"ok": True, "message": "Worm Tracker API running"}
+
+
+@app.post("/api/heartbeat")
+def heartbeat():
+    global _last_heartbeat
+    _last_heartbeat = time.monotonic()
+    return {"ok": True}
 
 
 @app.get("/jobs")
