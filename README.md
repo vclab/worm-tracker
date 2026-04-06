@@ -172,11 +172,15 @@ The numeric ID in a partial key matches the tracker's internal worm ID. A worm w
 
 | Path | Description |
 |---|---|
-| `app/uploads/` | Temporary upload storage (deleted after processing) |
-| `app/outputs/{job_id}/` | All outputs per job |
-| `app/jobs.db` | SQLite job history database |
+| `~/Documents/WormTracker/` | Default outputs folder (user-configurable) |
+| `~/Documents/WormTracker/{job_id}/{timestamp}_name/` | All outputs for a job |
+| `~/Documents/WormTracker/jobs.db` | SQLite job history — one per outputs folder |
+| `~/Library/Application Support/WormTracker/config.json` | App config (macOS) |
+| `~/Library/Application Support/WormTracker/uploads/` | Temp uploads, deleted after processing |
 
-All three are gitignored and created automatically at runtime.
+All output folders and databases are created automatically. The outputs directory can be changed via the **⚙ Settings** panel in the UI — useful for pointing to an external drive. Each outputs folder is fully self-contained (database lives inside it), so you can move or archive a folder and its job history travels with it.
+
+> On Windows the config lives in `%APPDATA%/WormTracker/`; on Linux in `~/.config/WormTracker/`.
 
 ---
 

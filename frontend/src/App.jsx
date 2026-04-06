@@ -2,6 +2,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import MotionCharts from "./MotionCharts";
 import JobHistory from "./JobHistory";
 import HeadTailCorrector from "./HeadTailCorrector";
+import Settings from "./Settings";
 import { API } from "./api";
 
 function App() {
@@ -19,6 +20,7 @@ function App() {
   const [currentJobId, setCurrentJobId] = useState(null);
   const [showHtCorrector, setShowHtCorrector] = useState(false);
   const [regenPending, setRegenPending] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
 
   // Head/tail overlay canvas (drawn over the comparison slider)
   const htCanvasRef = useRef(null);
@@ -227,8 +229,18 @@ function App() {
             ) : (
               <span className="status-idle">Ready to analyze</span>
             )}
+            <button
+              className="settings-gear"
+              onClick={() => setShowSettings((v) => !v)}
+              title="Settings"
+            >
+              ⚙
+            </button>
           </div>
         </div>
+
+        {/* Settings panel */}
+        {showSettings && <Settings onClose={() => setShowSettings(false)} />}
 
         {/* Parameters */}
         <section className="form">

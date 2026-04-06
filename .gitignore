@@ -11,6 +11,10 @@ app/outputs/
 app/jobs.db
 sample-data/
 
+# --- User config and outputs now live outside the repo ---
+# Outputs default : ~/Documents/WormTracker/
+# Config          : ~/Library/Application Support/WormTracker/config.json
+
 # --- Node / React ---
 frontend/node_modules/
 frontend/build/

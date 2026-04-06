@@ -7,6 +7,7 @@ from uuid import uuid4
 from contextlib import contextmanager
 from datetime import datetime, timezone
 import logging
+import pydantic
 import shutil
 import subprocess
 import sys
@@ -23,6 +24,7 @@ import numpy as np
 import cv2
 
 from app.worm_tracker import run_tracking, compute_motion_stats, export_csv_files, draw_tracks
+from app.config import load_config, save_config, get_config_dir
 
 app = FastAPI(title="Worm Tracker API (Local)")
 
@@ -50,10 +52,16 @@ app.add_middleware(
 )
 
 APP_DIR = Path(__file__).resolve().parent
-UPLOADS = APP_DIR / "uploads"
-OUTPUTS = APP_DIR / "outputs"
-UPLOADS.mkdir(exist_ok=True, parents=True)
+
+# ---------------------------------------------------------------------------
+# Paths — outputs and DB are user-configurable; uploads are app-managed temp
+# ---------------------------------------------------------------------------
+
+_config = load_config()
+OUTPUTS = Path(_config["outputs_dir"])
+UPLOADS = get_config_dir() / "uploads"   # temp files, not user data
 OUTPUTS.mkdir(exist_ok=True, parents=True)
+UPLOADS.mkdir(exist_ok=True, parents=True)
 
 # ---------------------------------------------------------------------------
 # FFmpeg — prefer bundled static binary (imageio_ffmpeg), fall back to PATH
@@ -77,7 +85,8 @@ FFMPEG_BIN = _resolve_ffmpeg()
 # Database
 # ---------------------------------------------------------------------------
 
-DB_PATH = APP_DIR / "jobs.db"
+# One DB per outputs folder — makes each folder self-contained and portable.
+DB_PATH = OUTPUTS / "jobs.db"
 
 
 def init_db():
@@ -485,6 +494,28 @@ if getattr(sys, "frozen", False):
 @app.get("/api/health")
 def root():
     return {"ok": True, "message": "Worm Tracker API running"}
+
+
+@app.get("/api/settings")
+def get_settings():
+    cfg = load_config()
+    return {
+        "outputs_dir": cfg["outputs_dir"],
+        "config_dir": str(get_config_dir()),
+    }
+
+
+class _SettingsIn(pydantic.BaseModel):
+    outputs_dir: str
+
+
+@app.post("/api/settings")
+def update_settings(body: _SettingsIn):
+    new_path = Path(body.outputs_dir).expanduser().resolve()
+    cfg = load_config()
+    cfg["outputs_dir"] = str(new_path)
+    save_config(cfg)
+    return {"ok": True, "outputs_dir": str(new_path), "restart_required": True}
 
 
 @app.post("/api/heartbeat")

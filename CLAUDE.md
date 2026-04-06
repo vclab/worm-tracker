@@ -98,9 +98,12 @@ Partial worms (touching frame edges) are tracked but excluded from final output;
 
 ## File Locations
 
-- Uploads: `app/uploads/` (gitignored, deleted after processing completes)
-- Outputs: `app/outputs/{job_id}/{timestamp}_{output_name}/` (gitignored)
-- Job database: `app/jobs.db` (gitignored, SQLite)
+- Config: `~/Library/Application Support/WormTracker/config.json` (macOS) — stores `outputs_dir`
+- Uploads: `~/Library/Application Support/WormTracker/uploads/` — temp, deleted after processing
+- Outputs: `{outputs_dir}/{job_id}/{timestamp}_{output_name}/` — default `~/Documents/WormTracker/`
+- Job database: `{outputs_dir}/jobs.db` — one DB per outputs folder, lives alongside the outputs
+
+The outputs directory is user-configurable via the Settings panel (⚙ in the UI) or by editing the config file directly. Changes require an app restart.
 
 ## Output Formats
 
