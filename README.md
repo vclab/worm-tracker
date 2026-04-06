@@ -1,6 +1,6 @@
-# Worm Tracker Web App
+# Worm Tracker
 
-This project tackles the challenge of tracking deformable microscopic organisms, specifically *Caenorhabditis elegans* (C. elegans), in video data. Unlike rigid objects, C. elegans can bend, elongate, overlap, and dramatically change shape between frames, which makes reliable tracking difficult for standard computer vision pipelines. Yet, accurate tracking is essential in biology, behavioral science, and neuroscience, where C. elegans is widely used as a model organism to study how environmental stimuli (e.g., chemical exposure) affect behavior and movement. Our goal is to build a robust tracking pipeline that not only follows the position of each worm, but also captures its body deformation over time—such as the motion of the head, body, and tail—enabling large-scale, quantitative behavioral analysis.
+A full-stack application for tracking *Caenorhabditis elegans* (C. elegans) in video data. The tracker extracts skeleton-based keypoints to capture body deformation over time — including head, body, and tail motion — enabling quantitative behavioral analysis.
 
 <p align="center">
   <img src="media/tracking_demo.gif" alt="Tracking demo" />
@@ -10,179 +10,188 @@ This project tackles the challenge of tracking deformable microscopic organisms,
   <img src="media/tracking_demo2.gif" alt="Tracking demo" />
 </p>
 
-**The tracker app comprises two parts:**
-
-- **Backend** (Python + FastAPI) that executes the (worm) tracking code; and
-- **Frontend** (React + Vite) that presents a browser-based interface for uploading video, viewing tracking performance, and downloading tracking results.  The tracking results can subsequently be used to analyze worm movement. 
-
-![GitHub release (latest by date)](https://img.shields.io/github/v/release/vclab/worm-tracker)
+**Stack:**
+- **Backend** — Python + FastAPI (`/app`)
+- **Frontend** — React + Vite (`/frontend`)
 
 ---
 
-## Installation 
+## Option A — Standalone macOS App (no setup required)
+
+Build a self-contained `WormTracker.app` bundle (includes FFmpeg, no Python or Node needed on the target machine):
+
+```bash
+./build.sh
+```
+
+Then launch:
+```bash
+open dist/WormTracker.app
+```
+
+Or run directly to see server logs:
+```bash
+dist/WormTracker/WormTracker
+```
+
+> **Prerequisites for building:** Python venv at `~/venv/worm-tracker` with dependencies installed, Node.js 18+, and `npm`.
+
+---
+
+## Option B — Development Mode
+
+Run backend and frontend separately with hot-reload.
 
 ### Prerequisites
 
-Install these first:
-
-1. **Python 3.9+**
-
-   - Download: <https://www.python.org/downloads/>
-   - On Windows: check **“Add Python to PATH”** during installation.
-
-2. **Node.js (v18 or newer)**
-
-   - Download LTS version: <https://nodejs.org>
-   - This also installs **npm**.
-
-3. **Git** (to clone the repository)
-
-   - Download: <https://git-scm.com/downloads>
-   - Or click **Code → Download ZIP** on GitHub.
-
-4. **FFmpeg** (recommended for video playback)
-   - Windows: <https://www.gyan.dev/ffmpeg/builds/> or `choco install ffmpeg` (if using Chocolatey)
-   - macOS: `brew install ffmpeg` (via Homebrew)
-   - Linux: install via your package manager (`apt`, `dnf`, etc.).
-   - Without FFmpeg, the app still works but some videos may not play in-browser.
+1. **Python 3.9+** — <https://www.python.org/downloads/>
+2. **Node.js v18+** — <https://nodejs.org> (also installs `npm`)
+3. **FFmpeg** — for H.264 video transcoding during development
+   - macOS: `brew install ffmpeg`
+   - Linux: `apt install ffmpeg`
+   - Windows: <https://www.gyan.dev/ffmpeg/builds/> or `choco install ffmpeg`
 
 ### Setup
 
 #### 1. Clone the repository
 
 ```bash
-git clone https://github.com/AviShangari/Worm-Tracker-Web-App.git
-cd Worm-Tracker-Web-App
+git clone https://github.com/vclab/worm-tracker.git
+cd worm-tracker
 ```
 
-(Or unzip if you downloaded the ZIP.)
-
-#### 2. Install backend (Python)
-
-Create a virtual environment:
+#### 2. Set up the Python environment
 
 ```bash
-python -m venv venv
-```
-
-Activate it:
-
-- **Windows**
-  ```bash
-  venv\Scripts\activate
-  ```
-- **macOS/Linux**
-  ```bash
-  source venv/bin/activate
-  ```
-
-Install dependencies:
-
-```bash
+python -m venv ~/venv/worm-tracker
+source ~/venv/worm-tracker/bin/activate   # macOS/Linux
+# .\venv\Scripts\activate                 # Windows (use a local venv instead)
 pip install -r requirements.txt
 ```
 
-#### 3. Start the backend server
-
-From the project root (the main folder):
-
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-You should see:
-
-```
-Uvicorn running on http://127.0.0.1:8000
-```
-
-Leave this terminal running.
-
-#### 4. Install frontend (React)
-
-Open a **new terminal**, then:
+#### 3. Install frontend dependencies
 
 ```bash
 cd frontend
 npm install
+cd ..
 ```
 
-#### 5. Start the frontend
+### Running in development
 
-Still inside `frontend`:
+You need **two terminals** running simultaneously:
 
+**Terminal 1 — backend:**
 ```bash
+source ~/venv/worm-tracker/bin/activate
+uvicorn app.main:app --reload --port 8000
+```
+
+**Terminal 2 — frontend:**
+```bash
+cd frontend
 npm run dev
 ```
 
-It will display something like:
+Then open **<http://127.0.0.1:5173>** in your browser.
 
-```
-Local:   http://127.0.0.1:5173/
-```
+The Vite dev server proxies API calls to the backend on port 8000. Both servers support hot-reload — changes to Python or React files take effect immediately.
 
-Open that link in your browser.
+### Shutting down
+
+Press `Ctrl+C` in both terminals.
 
 ---
 
-## How to Use the Worm Tracker
+## How to Use
 
-1. Open the site in your browser (default: [http://127.0.0.1:5173](http://127.0.0.1:5173))
-2. (Optional) Adjust parameters: **Keypoints**, **Area Threshold**, **Max Age**, **Output Name**
-3. Click **Select video** and choose an MP4 or .mov file (recommended).
-4. A progress bar will show while processing (The backend terminal shows the estimated time for processing, if needed).
-5. Once done:
-   - The processed video will appear and play in the browser
-   - A **Download All (ZIP)** link will be available, containing:
-     - Processed video (`.mp4`, H.264)
-     - Metadata (`.yaml`)
-     - Keypoints (`.npz`)
-6. Use the **Run on another file** button to process a new video.
+1. Open the app in your browser
+2. Adjust tracking parameters if needed (Keypoints, Area Threshold, Max Age, Persistence)
+3. Select one or more video files and click **Add to queue**
+4. Jobs are processed one at a time — the **Job History** panel shows live progress
+5. Click a completed job to load its results:
+   - **Before/after comparison slider** — drag to reveal original vs. tracked video side by side
+   - **Download All (ZIP)** — tracked video, original, keypoints (`.npz`), metadata (`.yaml`), motion stats (`.json`)
+   - **Export CSV** — per-worm summary and per-frame timeseries data
+   - **Head/Tail Correction** — flip head↔tail assignment for individual worms, then re-download
+   - **Motion Analysis** — per-worm heatmap and timeline chart (overall, head, tail motion)
+6. Use **Run on another file** to reset and process a new video
 
-### Where Files Are Saved (Locally)
+### Tracking parameters
 
-- Uploaded raw videos → `app/uploads/`
-- Processed outputs → `app/outputs/<job_id>/`
-  - Contains the processed MP4 (H.264), YAML, NPZ, and the packaged ZIP.
-- These folders are **gitignored** and created automatically at runtime.
+| Parameter | Default | Description |
+|---|---|---|
+| Keypoints per worm | 15 | Skeleton sample points along each worm |
+| Area threshold | 50 | Minimum pixel area to consider a blob a worm |
+| Max age | 35 | Frames to keep tracking a worm after it disappears |
+| Persistence | 50 | Minimum frames tracked to include a worm in output |
 
-### Shutting Down The Web Application
+---
 
-- Press `Ctrl + C` (Windows) or `Command + C` (Mac) on both backend and frontend terminals to terminate the program
+## Output Formats
+
+| File | Format | Contents |
+|---|---|---|
+| `*_tracked.mp4` | H.264 video | Annotated video with colored skeleton keypoints and worm IDs |
+| `*_original.*` | original format | Copy of the input video |
+| `*_metadata.yaml` | YAML | Git version, timestamp, parameters, frame count |
+| `*_keypoints.npz` | NumPy archive | Per-worm arrays of shape `(keypoints, frames, 2)` — `[y, x]` coordinates |
+| `*_motion_stats.json` | JSON | Per-worm motion values (overall, head, tail) and aggregate stats |
+| `*_summary.csv` | CSV | One row per worm: mean motion values |
+| `*_timeseries.csv` | CSV | One row per frame window: per-worm head/tail motion over time |
+
+---
+
+## File Locations
+
+| Path | Description |
+|---|---|
+| `app/uploads/` | Temporary upload storage (deleted after processing) |
+| `app/outputs/{job_id}/` | All outputs per job |
+| `app/jobs.db` | SQLite job history database |
+
+All three are gitignored and created automatically at runtime.
+
+---
+
+## What's in Git / What's Ignored
+
+**Tracked (pushed to git):**
+- `app/` — Python backend source
+- `frontend/src/` — React source files
+- `frontend/package.json`, `vite.config.js`, etc.
+- `launcher.py` — entry point for the packaged app
+- `worm_tracker.spec` — PyInstaller build recipe
+- `build.sh` — one-command build script
+- `validate_csv.py` — CSV output validation script
+- `requirements.txt`, `CLAUDE.md`, `README.md`
+
+**Ignored (not pushed):**
+- `app/uploads/`, `app/outputs/`, `app/jobs.db` — runtime data
+- `frontend/node_modules/` — regenerated by `npm install`
+- `frontend/dist/`, `dist/`, `build/` — regenerated by `npm run build` / `build.sh`
+- `*.mp4`, `*.avi`, `*.mkv`, `*.npz`, `*.yaml`, `*.zip`, `*.log` — large/generated files
 
 ---
 
 ## Troubleshooting
 
-- **“command not found” (pip, python, node, npm)**  
-  Ensure Python/Node.js are installed and added to PATH. Close & reopen the terminal after installing.
+**`command not found` (pip, python, node, npm)**
+Ensure Python/Node are installed and on PATH. Close and reopen the terminal after installing.
 
-- **pip not recognized**  
-  Use:
+**Frontend opens but video won't play**
+Install FFmpeg (see prerequisites). The backend uses it to transcode to browser-compatible H.264.
 
-  ```bash
-  python -m pip install -r requirements.txt
-  ```
+**CORS or network errors in the browser**
+Make sure the backend is running at `http://127.0.0.1:8000` before opening the frontend.
 
-- **npm install is slow**  
-  First run may take a while; that’s normal.
+**Port already in use**
+Run the frontend on a different port:
+```bash
+npm run dev -- --port 5174
+```
 
-- **Frontend opens but video won’t play**  
-  Install **FFmpeg** (see prerequisites). The backend uses it to transcode to web-friendly H.264.  
-  MP4 input is recommended.
-
-- **CORS / network errors in the browser**  
-  Make sure the backend is running at `http://127.0.0.1:8000` before starting the frontend.
-
-- **“Address already in use”** when starting the frontend  
-  Run with a different port:
-  ```bash
-  npm run dev -- --port 5174
-  ```
-
----
-
-## What’s Included vs. Ignored in Git
-
-- **Included:** source code (`app/`, `frontend/`), configs, `requirements.txt`, this README.
-- **Ignored:** `app/uploads/`, `app/outputs/`, `frontend/node_modules/`, build artifacts, and large media files.
+**CLI usage (run tracker without the web UI)**
+```bash
+python -m app.worm_tracker input.mov output_dir --keypoints 15 --min-area 50 --max-age 35 --persistence 50
+```
