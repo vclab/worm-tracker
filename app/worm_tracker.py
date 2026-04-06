@@ -398,6 +398,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     if not cap.isOpened():
         print(f"Error: Cannot open video {video_path}")
         cap.release()
+        shutil.rmtree(frames_dir, ignore_errors=True)
         return None
 
     input_fps = cap.get(cv2.CAP_PROP_FPS) or 30
@@ -410,117 +411,118 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     pbar = tqdm(total=total_frames, desc="Processing frames", unit="frame")
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        pbar.update(1)
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            pbar.update(1)
 
-        # Report progress every 10 frames
-        if progress_callback and frame_idx % 10 == 0:
-            progress_callback("processing", frame_idx, total_frames)
+            # Report progress every 10 frames
+            if progress_callback and frame_idx % 10 == 0:
+                progress_callback("processing", frame_idx, total_frames)
 
-        # Check for cancellation
-        if cancel_check and cancel_check():
-            print("Processing cancelled by user")
-            pbar.close()
-            cap.release()
-            if progress_callback:
-                progress_callback("cancelled", frame_idx, total_frames)
-            return None
+            # Check for cancellation
+            if cancel_check and cancel_check():
+                print("Processing cancelled by user")
+                if progress_callback:
+                    progress_callback("cancelled", frame_idx, total_frames)
+                return None
 
-        binary = preprocess_frame(frame)
-        mask_data = extract_worm_masks(binary, area_threshold)
-        current_keypoints = []
-        current_partial_flags = []
+            binary = preprocess_frame(frame)
+            mask_data = extract_worm_masks(binary, area_threshold)
+            current_keypoints = []
+            current_partial_flags = []
 
-        for mask, is_partial in mask_data:
-            keypoints = get_skeleton_points(mask, keypoints_per_worm)
-            if keypoints is not None:
-                current_keypoints.append(keypoints)
-                current_partial_flags.append(is_partial)
+            for mask, is_partial in mask_data:
+                keypoints = get_skeleton_points(mask, keypoints_per_worm)
+                if keypoints is not None:
+                    current_keypoints.append(keypoints)
+                    current_partial_flags.append(is_partial)
 
-        current_ids = [-1] * len(current_keypoints)
+            current_ids = [-1] * len(current_keypoints)
 
-        if len(track_memory) > 0:
-            prev_keypoints = [t["keypoints"] for t in track_memory if t["age"] <= max_age]
-            prev_ids = [t["id"] for t in track_memory if t["age"] <= max_age]
-            cost = compute_cost_matrix(current_keypoints, prev_keypoints)
-            row_ind, col_ind = linear_sum_assignment(cost)
+            if len(track_memory) > 0:
+                prev_keypoints = [t["keypoints"] for t in track_memory if t["age"] <= max_age]
+                prev_ids = [t["id"] for t in track_memory if t["age"] <= max_age]
+                cost = compute_cost_matrix(current_keypoints, prev_keypoints)
+                row_ind, col_ind = linear_sum_assignment(cost)
 
-            for i, j in zip(row_ind, col_ind):
-                if i < len(prev_keypoints) and j < len(current_keypoints):
-                    if cost[i, j] < 80:
-                        prev_vec = prev_keypoints[i][-1] - prev_keypoints[i][0]
-                        curr_vec = current_keypoints[j][-1] - current_keypoints[j][0]
-                        if np.dot(prev_vec, curr_vec) < 0:
-                            current_keypoints[j] = current_keypoints[j][::-1]
-                        current_ids[j] = prev_ids[i]
+                for i, j in zip(row_ind, col_ind):
+                    if i < len(prev_keypoints) and j < len(current_keypoints):
+                        if cost[i, j] < 80:
+                            prev_vec = prev_keypoints[i][-1] - prev_keypoints[i][0]
+                            curr_vec = current_keypoints[j][-1] - current_keypoints[j][0]
+                            if np.dot(prev_vec, curr_vec) < 0:
+                                current_keypoints[j] = current_keypoints[j][::-1]
+                            current_ids[j] = prev_ids[i]
 
-        for j in range(len(current_keypoints)):
-            if current_ids[j] == -1:
-                curr_centroid = np.mean(current_keypoints[j], axis=0)
-                too_close = False
-                for track in track_memory:
-                    prev_centroid = np.mean(track["keypoints"], axis=0)
-                    if np.linalg.norm(curr_centroid - prev_centroid) < 50:
-                        too_close = True
-                        break
-                if not too_close:
-                    current_ids[j] = next_id
-                    next_id += 1
-                else:
-                    current_keypoints[j] = None
-                    current_partial_flags[j] = None
+            for j in range(len(current_keypoints)):
+                if current_ids[j] == -1:
+                    curr_centroid = np.mean(current_keypoints[j], axis=0)
+                    too_close = False
+                    for track in track_memory:
+                        prev_centroid = np.mean(track["keypoints"], axis=0)
+                        if np.linalg.norm(curr_centroid - prev_centroid) < 50:
+                            too_close = True
+                            break
+                    if not too_close:
+                        current_ids[j] = next_id
+                        next_id += 1
+                    else:
+                        current_keypoints[j] = None
+                        current_partial_flags[j] = None
 
-        filtered_ids = []
-        filtered_keypoints = []
-        filtered_partial_flags = []
-        for cid, kp, pf in zip(current_ids, current_keypoints, current_partial_flags):
-            if kp is not None and cid != -1:
-                filtered_ids.append(cid)
-                filtered_keypoints.append(kp)
-                filtered_partial_flags.append(pf)
-        current_ids = filtered_ids
-        current_keypoints = filtered_keypoints
-        current_partial_flags = filtered_partial_flags
+            filtered_ids = []
+            filtered_keypoints = []
+            filtered_partial_flags = []
+            for cid, kp, pf in zip(current_ids, current_keypoints, current_partial_flags):
+                if kp is not None and cid != -1:
+                    filtered_ids.append(cid)
+                    filtered_keypoints.append(kp)
+                    filtered_partial_flags.append(pf)
+            current_ids = filtered_ids
+            current_keypoints = filtered_keypoints
+            current_partial_flags = filtered_partial_flags
 
-        updated_tracks = []
-        for tid, kps in zip(current_ids, current_keypoints):
-            updated_tracks.append({"id": tid, "keypoints": kps, "age": 0})
+            updated_tracks = []
+            for tid, kps in zip(current_ids, current_keypoints):
+                updated_tracks.append({"id": tid, "keypoints": kps, "age": 0})
 
-        for old_track in track_memory:
-            if old_track["id"] not in current_ids and old_track["age"] < max_age:
-                updated_tracks.append({"id": old_track["id"], "keypoints": old_track["keypoints"], "age": old_track["age"] + 1})
+            for old_track in track_memory:
+                if old_track["id"] not in current_ids and old_track["age"] < max_age:
+                    updated_tracks.append({"id": old_track["id"], "keypoints": old_track["keypoints"], "age": old_track["age"] + 1})
 
-        track_memory = updated_tracks
+            track_memory = updated_tracks
 
-        for worm_id, keypoints, is_partial in zip(current_ids, current_keypoints, current_partial_flags):
-            if worm_id not in keypoint_tracks:
-                keypoint_tracks[worm_id] = [[] for _ in range(keypoints_per_worm)]
-            for i in range(keypoints_per_worm):
-                keypoint_tracks[worm_id][i].append(keypoints[i])
-            # Mark worm as partial if it ever touches an edge
-            if is_partial:
-                partial_worm_ids.add(worm_id)
+            for worm_id, keypoints, is_partial in zip(current_ids, current_keypoints, current_partial_flags):
+                if worm_id not in keypoint_tracks:
+                    keypoint_tracks[worm_id] = [[] for _ in range(keypoints_per_worm)]
+                for i in range(keypoints_per_worm):
+                    keypoint_tracks[worm_id][i].append(keypoints[i])
+                # Mark worm as partial if it ever touches an edge
+                if is_partial:
+                    partial_worm_ids.add(worm_id)
 
-        annotated = draw_tracks(frame.copy(), current_keypoints, current_ids, keypoints_per_worm, current_partial_flags)
-        cv2.imwrite(os.path.join(frames_dir, f"frame_{frame_idx:04d}.png"), annotated)
-        frame_idx += 1
-
-    pbar.close()
-    cap.release()
+            annotated = draw_tracks(frame.copy(), current_keypoints, current_ids, keypoints_per_worm, current_partial_flags)
+            cv2.imwrite(os.path.join(frames_dir, f"frame_{frame_idx:04d}.png"), annotated)
+            frame_idx += 1
+    finally:
+        pbar.close()
+        cap.release()
 
     output_video_path = os.path.join(job_output_dir, f"{job_folder}_raw.mp4")
 
     image_files = sorted([f for f in os.listdir(frames_dir) if f.endswith(".png")])
     if not image_files:
         print("No frames saved. No video generated.")
+        shutil.rmtree(frames_dir, ignore_errors=True)
         return None
 
     first_image = cv2.imread(os.path.join(frames_dir, image_files[0]))
     if first_image is None:
         print(f"Error: Cannot read first frame {image_files[0]}")
+        shutil.rmtree(frames_dir, ignore_errors=True)
         return None
 
     height, width, _ = first_image.shape

@@ -14,7 +14,10 @@ function MotionCharts({ data }) {
   const [selectedWorm, setSelectedWorm] = useState(null);
 
   useEffect(() => {
-    setSelectedWorm(null);
+    setSelectedWorm((prev) => {
+      if (prev !== null && data?.worm_ids?.includes(prev)) return prev;
+      return null;
+    });
   }, [data]);
 
   if (!data || !data.worm_ids || data.worm_ids.length === 0) return null;

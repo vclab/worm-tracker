@@ -12,12 +12,6 @@ import time
 import webbrowser
 
 
-def _find_free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
 def _open_browser(port: int, delay: float = 2.0) -> None:
     time.sleep(delay)
     webbrowser.open(f"http://127.0.0.1:{port}")
@@ -32,7 +26,13 @@ def main() -> None:
         if bundle_dir not in sys.path:
             sys.path.insert(0, bundle_dir)
 
-    port = _find_free_port()
+    # Bind a socket now and keep it open to eliminate the race window between
+    # finding a free port and uvicorn binding the same address.
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.listen(128)
 
     browser_thread = threading.Thread(
         target=_open_browser, args=(port,), daemon=True
@@ -40,10 +40,10 @@ def main() -> None:
     browser_thread.start()
 
     import uvicorn
+    # Pass fd so uvicorn reuses the already-bound socket (no re-bind race).
     uvicorn.run(
         "app.main:app",
-        host="127.0.0.1",
-        port=port,
+        fd=sock.fileno(),
         log_level="warning",
     )
 

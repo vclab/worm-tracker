@@ -43,6 +43,8 @@ function App() {
   // Seek bar ref + motion stats load tracking (prevents stale fetch from overwriting newer job)
   const seekBarRef = useRef(null);
   const loadingJobRef = useRef(null);
+  const motionStatsAbortRef = useRef(null);
+  const sliderRafRef = useRef(null);
 
   // Heartbeat — tells the server the browser is still open so it doesn't
   // shut itself down. Only active in the packaged app (API is same-origin).
@@ -64,13 +66,18 @@ function App() {
     }
   }, []);
 
-  // Handle slider drag
+  // Handle slider drag — throttled with requestAnimationFrame to avoid layout thrash
   const handleSliderMove = useCallback((clientX) => {
     if (!compareContainerRef.current) return;
-    const rect = compareContainerRef.current.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const percent = Math.max(0, Math.min(100, (x / rect.width) * 100));
-    setSliderPos(percent);
+    if (sliderRafRef.current) cancelAnimationFrame(sliderRafRef.current);
+    sliderRafRef.current = requestAnimationFrame(() => {
+      sliderRafRef.current = null;
+      const rect = compareContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const x = clientX - rect.left;
+      const percent = Math.max(0, Math.min(100, (x / rect.width) * 100));
+      setSliderPos(percent);
+    });
   }, []);
 
   useEffect(() => {
@@ -168,13 +175,18 @@ function App() {
     setRegenPending(job.regen_pending ? true : false);
     const thisJobId = job.job_id;
     loadingJobRef.current = thisJobId;
+    if (motionStatsAbortRef.current) motionStatsAbortRef.current.abort();
     if (job.motion_stats_path) {
-      fetch(`${API}${job.motion_stats_path}`)
+      const ctrl = new AbortController();
+      motionStatsAbortRef.current = ctrl;
+      fetch(`${API}${job.motion_stats_path}`, { signal: ctrl.signal })
         .then((r) => r.json())
         .then((stats) => {
           if (loadingJobRef.current === thisJobId) setMotionStats(stats);
         })
-        .catch((err) => console.error("Failed to load motion stats:", err));
+        .catch((err) => {
+          if (err.name !== "AbortError") console.error("Failed to load motion stats:", err);
+        });
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   };

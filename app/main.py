@@ -45,7 +45,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://127.0.0.1:5173", "http://localhost:5173",
                    "http://127.0.0.1:8000", "http://localhost:8000"],
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -82,6 +82,10 @@ DB_PATH = APP_DIR / "jobs.db"
 
 def init_db():
     with sqlite3.connect(DB_PATH, timeout=30) as conn:
+        # WAL: readers don't block writers; safe for concurrent web requests.
+        # NORMAL synchronous: skips fsync except at checkpoints — fast for local use.
+        # WAL guarantees atomicity even on crash; at worst the last un-checkpointed
+        # transaction is lost, which is acceptable for a local research tool.
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("""
@@ -105,17 +109,21 @@ def init_db():
                 motion_stats_path   TEXT
             )
         """)
-        for col, typedef in [
-            ("original_video_path", "TEXT"),
-            ("started_at", "TEXT"),
-            ("progress", "INTEGER DEFAULT 0"),
-            ("progress_stage", "TEXT"),
-            ("regen_pending", "INTEGER NOT NULL DEFAULT 0"),
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at DESC)"
+        )
+        # Migration: add columns introduced after initial schema. Each is idempotent.
+        for stmt in [
+            "ALTER TABLE jobs ADD COLUMN original_video_path TEXT",
+            "ALTER TABLE jobs ADD COLUMN started_at TEXT",
+            "ALTER TABLE jobs ADD COLUMN progress INTEGER DEFAULT 0",
+            "ALTER TABLE jobs ADD COLUMN progress_stage TEXT",
+            "ALTER TABLE jobs ADD COLUMN regen_pending INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
-                conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {typedef}")
+                conn.execute(stmt)
             except sqlite3.OperationalError:
-                pass
+                pass  # column already exists
         conn.commit()
 
 
@@ -215,7 +223,16 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
             stderr=subprocess.STDOUT,
         )
         src_mp4.unlink()
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+    except FileNotFoundError:
+        logger.error("FFmpeg binary not found (%s) for job %s — falling back to raw video", FFMPEG_BIN, job_id)
+        if src_mp4.exists():
+            src_mp4.rename(h264_mp4)
+    except subprocess.TimeoutExpired:
+        logger.error("FFmpeg transcoding timed out for job %s — falling back to raw video", job_id)
+        if src_mp4.exists():
+            src_mp4.rename(h264_mp4)
+    except subprocess.CalledProcessError as exc:
+        logger.error("FFmpeg transcoding failed (rc=%d) for job %s — falling back to raw video", exc.returncode, job_id)
         if src_mp4.exists():
             src_mp4.rename(h264_mp4)
 
@@ -441,7 +458,7 @@ _worker.start()
 # ---------------------------------------------------------------------------
 
 _HEARTBEAT_TIMEOUT   = 20   # seconds of silence → shutdown
-_HEARTBEAT_GRACE     = 30   # seconds after startup before watchdog activates
+_HEARTBEAT_GRACE     = 60   # seconds after startup before watchdog activates
 _last_heartbeat      = time.monotonic()
 _watchdog_active     = False   # set to True only when running as a bundle
 
@@ -480,9 +497,12 @@ def heartbeat():
 
 
 @app.get("/jobs")
-def list_jobs():
+def list_jobs(limit: int = 100, offset: int = 0):
     with get_db() as conn:
-        rows = conn.execute("SELECT * FROM jobs ORDER BY created_at DESC").fetchall()
+        rows = conn.execute(
+            "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -521,6 +541,11 @@ def delete_job(job_id: str):
     return {"ok": True}
 
 
+_ALLOWED_VIDEO_EXTENSIONS = {
+    ".mp4", ".mov", ".avi", ".mkv", ".webm", ".m4v", ".wmv", ".flv", ".mpeg", ".mpg"
+}
+
+
 @app.post("/upload")
 async def upload_video(
     file: UploadFile = File(...),
@@ -531,6 +556,13 @@ async def upload_video(
 ):
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
+    # Reject filenames that contain path separators (e.g. "../secret")
+    safe_name = Path(file.filename).name
+    if not safe_name or safe_name != file.filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+    ext = Path(file.filename).suffix.lower()
+    if ext not in _ALLOWED_VIDEO_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext or '(none)'}")
 
     job_id = str(uuid4())
     saved_path = UPLOADS / f"{job_id}__{file.filename}"
@@ -571,7 +603,9 @@ def download_file(job_id: str, filename: str):
         raise HTTPException(status_code=404, detail="File not found")
 
     matched_path = matches[0].resolve()
-    if not str(matched_path).startswith(str(job_dir.resolve())):
+    try:
+        matched_path.relative_to(job_dir.resolve())
+    except ValueError:
         raise HTTPException(status_code=403, detail="Access denied")
 
     return FileResponse(matched_path, filename=safe_filename)
@@ -729,19 +763,29 @@ def get_keypoints(job_id: str):
 
 def _regen_and_rebuild(subdir: Path, job_id: str):
     """Background task: regenerate tracked video and rebuild ZIPs, then clear regen_pending."""
+    regen_ok = True
     try:
         regenerate_tracked_video(subdir)
     except Exception as exc:
         logger.error("Video regeneration failed for %s: %s", subdir, exc)
-    try:
-        _rebuild_zips(subdir)
-    except Exception as exc:
-        logger.error("ZIP rebuild failed for %s: %s", subdir, exc)
+        regen_ok = False
+    if regen_ok:
+        try:
+            _rebuild_zips(subdir)
+        except Exception as exc:
+            logger.error("ZIP rebuild failed for %s: %s", subdir, exc)
+            regen_ok = False
     try:
         with get_db() as conn:
-            conn.execute("UPDATE jobs SET regen_pending=0 WHERE job_id=?", (job_id,))
+            if regen_ok:
+                conn.execute("UPDATE jobs SET regen_pending=0 WHERE job_id=?", (job_id,))
+            else:
+                conn.execute(
+                    "UPDATE jobs SET regen_pending=0, error_msg=? WHERE job_id=?",
+                    ("Video regeneration failed — see server logs for details", job_id),
+                )
     except Exception as exc:
-        logger.error("Failed to clear regen_pending for %s: %s", job_id, exc)
+        logger.error("Failed to update regen status for %s: %s", job_id, exc)
 
 
 @app.post("/jobs/{job_id}/flip/{worm_id}")
