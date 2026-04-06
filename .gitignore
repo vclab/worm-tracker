@@ -35,3 +35,7 @@ frontend/dist/
 *.yaml
 *.npz
 *.log
+
+# --- Local research data (not part of the codebase) ---
+Tracking/
+Exported CSV Test/

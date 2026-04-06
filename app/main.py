@@ -106,18 +106,16 @@ def init_db():
                 original_video_path TEXT,
                 package_path        TEXT,
                 data_csv_path       TEXT,
-                motion_stats_path   TEXT
+                motion_stats_path   TEXT,
+                regen_pending       INTEGER NOT NULL DEFAULT 0
             )
         """)
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at DESC)"
         )
-        # Migration: add columns introduced after initial schema. Each is idempotent.
+        # Migration: add columns introduced after initial schema (for existing DBs).
+        # Columns already in CREATE TABLE above are intentionally absent from this list.
         for stmt in [
-            "ALTER TABLE jobs ADD COLUMN original_video_path TEXT",
-            "ALTER TABLE jobs ADD COLUMN started_at TEXT",
-            "ALTER TABLE jobs ADD COLUMN progress INTEGER DEFAULT 0",
-            "ALTER TABLE jobs ADD COLUMN progress_stage TEXT",
             "ALTER TABLE jobs ADD COLUMN regen_pending INTEGER NOT NULL DEFAULT 0",
         ]:
             try:
