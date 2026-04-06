@@ -217,7 +217,7 @@ function App() {
           <div className="header-left">
             <div className="title-row">
               <h1 className="title">WORM TRACKER</h1>
-              <span className="version">v1.1</span>
+              <span className="version">v1.1.0</span>
             </div>
             <p className="subtitle">C. elegans motion analysis</p>
           </div>
