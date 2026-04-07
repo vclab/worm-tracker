@@ -25,14 +25,21 @@ export default function JobHistory({ refreshKey = 0, onLoad, currentJobId = null
   const [jobs, setJobs] = useState([]);
   const [open, setOpen] = useState(false);
   const [actionError, setActionError] = useState(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const pollRef = useRef(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   async function fetchJobs() {
     try {
       const res = await fetch(`${API}/jobs`);
-      if (res.ok) setJobs(await res.json());
-    } catch (err) {
-      console.error("Failed to fetch jobs:", err);
+      if (res.ok && mountedRef.current) setJobs(await res.json());
+    } catch {
+      // Network errors during polling are non-fatal; ignore silently
     }
   }
 
@@ -74,14 +81,15 @@ export default function JobHistory({ refreshKey = 0, onLoad, currentJobId = null
   }
 
   async function handleDelete(jobId) {
-    if (!confirm("Delete this job and all its output files?")) return;
     try {
       setActionError(null);
       await fetch(`${API}/jobs/${jobId}`, { method: "DELETE" });
       if (jobId === currentJobId && onDeleteCurrent) onDeleteCurrent();
+      setConfirmDeleteId(null);
       fetchJobs();
     } catch {
       showError("Failed to delete job");
+      setConfirmDeleteId(null);
     }
   }
 
@@ -182,8 +190,17 @@ export default function JobHistory({ refreshKey = 0, onLoad, currentJobId = null
                         <button onClick={() => handleCancel(job.job_id)} style={btnCancel}>
                           Cancel
                         </button>
+                      ) : confirmDeleteId === job.job_id ? (
+                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                          <button onClick={() => handleDelete(job.job_id)} style={btnDeleteConfirm}>
+                            Confirm
+                          </button>
+                          <button onClick={() => setConfirmDeleteId(null)} style={btnDelete}>
+                            Cancel
+                          </button>
+                        </div>
                       ) : (
-                        <button onClick={() => handleDelete(job.job_id)} style={btnDelete}>
+                        <button onClick={() => setConfirmDeleteId(job.job_id)} style={btnDelete}>
                           Delete
                         </button>
                       )}
@@ -226,4 +243,8 @@ const btnCancel = {
 const btnDelete = {
   background: "none", border: "1px solid #374151", borderRadius: 6,
   color: "#9ca3af", cursor: "pointer", padding: "3px 8px", fontSize: "0.8rem",
+};
+const btnDeleteConfirm = {
+  background: "none", border: "1px solid #ef4444", borderRadius: 6,
+  color: "#ef4444", cursor: "pointer", padding: "3px 8px", fontSize: "0.8rem",
 };

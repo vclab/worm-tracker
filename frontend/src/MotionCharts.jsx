@@ -28,8 +28,9 @@ function MotionCharts({ data }) {
   // Get max values for heatmap scaling
   const maxOverall = data.per_worm_motion?.length ? Math.max(...data.per_worm_motion) : 0;
   const maxHead = data.per_worm_head_motion?.length ? Math.max(...data.per_worm_head_motion) : 0;
+  const maxMid  = data.per_worm_mid_motion?.length  ? Math.max(...data.per_worm_mid_motion)  : 0;
   const maxTail = data.per_worm_tail_motion?.length ? Math.max(...data.per_worm_tail_motion) : 0;
-  const globalMax = Math.max(maxOverall, maxHead, maxTail, 0);
+  const globalMax = Math.max(maxOverall, maxHead, maxMid, maxTail, 0);
 
   // Color scale function (0 to 1) -> color
   const getColor = (value, max) => {
@@ -48,13 +49,20 @@ function MotionCharts({ data }) {
     }
     const wormData = data.per_frame_motion[activeWorm];
     const headData = wormData.head || [];
+    const midData  = wormData.mid  || [];
     const tailData = wormData.tail || [];
     const windowSize = wormData.window_size || 1;
+    const len = Math.min(
+      headData.length,
+      tailData.length,
+      midData.length > 0 ? midData.length : Infinity,
+    );
 
-    return headData.map((head, i) => ({
+    return Array.from({ length: len }, (_, i) => ({
       frame: i * windowSize,
-      head: head,
-      tail: tailData[i] || 0,
+      head: headData[i] ?? null,
+      mid:  midData[i]  ?? null,
+      tail: tailData[i] ?? null,
     }));
   };
 
@@ -75,6 +83,7 @@ function MotionCharts({ data }) {
             <div className="heatmap-label"></div>
             <div className="heatmap-cell-header">Overall</div>
             <div className="heatmap-cell-header">Head</div>
+            <div className="heatmap-cell-header">Mid-body</div>
             <div className="heatmap-cell-header">Tail</div>
           </div>
 
@@ -102,6 +111,13 @@ function MotionCharts({ data }) {
               </div>
               <div
                 className="heatmap-cell"
+                style={{ backgroundColor: getColor((data.per_worm_mid_motion ?? [])[i] ?? 0, globalMax) }}
+                title={`${((data.per_worm_mid_motion ?? [])[i] ?? 0).toFixed(3)} px/frame`}
+              >
+                {((data.per_worm_mid_motion ?? [])[i] ?? 0).toFixed(2)}
+              </div>
+              <div
+                className="heatmap-cell"
                 style={{ backgroundColor: getColor(data.per_worm_tail_motion[i], globalMax) }}
                 title={`${data.per_worm_tail_motion[i].toFixed(3)} px/frame`}
               >
@@ -118,6 +134,9 @@ function MotionCharts({ data }) {
             </div>
             <div className="heatmap-cell summary-cell">
               {data.head_mean_motion.toFixed(2)} <span className="std">±{data.head_std_motion.toFixed(2)}</span>
+            </div>
+            <div className="heatmap-cell summary-cell">
+              {(data.mid_mean_motion ?? 0).toFixed(2)} <span className="std">±{(data.mid_std_motion ?? 0).toFixed(2)}</span>
             </div>
             <div className="heatmap-cell summary-cell">
               {data.tail_mean_motion.toFixed(2)} <span className="std">±{data.tail_std_motion.toFixed(2)}</span>
@@ -152,7 +171,7 @@ function MotionCharts({ data }) {
                   border: "1px solid #374151",
                   borderRadius: "8px",
                 }}
-                formatter={(value) => [value.toFixed(3), ""]}
+                formatter={(value) => [value != null ? value.toFixed(3) : "—", ""]}
                 labelFormatter={(label) => `Frame ${label}`}
               />
               <Legend
@@ -166,6 +185,15 @@ function MotionCharts({ data }) {
                 strokeWidth={1.5}
                 dot={false}
                 name="Head"
+              />
+              <Line
+                type="monotone"
+                dataKey="mid"
+                stroke="#a855f7"
+                strokeWidth={1.5}
+                dot={false}
+                name="Mid-body"
+                connectNulls={false}
               />
               <Line
                 type="monotone"

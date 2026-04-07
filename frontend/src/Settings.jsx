@@ -33,14 +33,17 @@ function Settings({ onClose }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ outputs_dir: draft }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.detail || `Server error ${res.status}`);
+      }
       const data = await res.json();
       setOutputsDir(data.outputs_dir);
       setDraft(data.outputs_dir);
       setEditing(false);
       setSaved(true);
-    } catch {
-      setError("Failed to save settings.");
+    } catch (e) {
+      setError(e.message || "Failed to save settings.");
     }
   };
 

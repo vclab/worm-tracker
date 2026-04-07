@@ -54,6 +54,7 @@ function App() {
   const loadingJobRef = useRef(null);
   const motionStatsAbortRef = useRef(null);
   const sliderRafRef = useRef(null);
+  const syncingRef = useRef(false); // prevents re-entrant video sync calls
 
   // Heartbeat — tells the server the browser is still open so it doesn't
   // shut itself down. Only active in the packaged app (API is same-origin).
@@ -75,11 +76,16 @@ function App() {
       .catch(() => {});
   }, []);
 
-  // Sync video playback between original and tracked
+  // Sync video playback between original and tracked.
+  // syncingRef prevents the mutual onTimeUpdate/onSeeked handlers from
+  // bouncing time updates back and forth in a feedback loop.
   const syncVideos = useCallback((source, target) => {
-    if (!source || !target) return;
+    if (!source || !target || syncingRef.current) return;
     if (Math.abs(source.currentTime - target.currentTime) > 0.05) {
+      syncingRef.current = true;
       target.currentTime = source.currentTime;
+      // Release the lock after the browser has processed the seek
+      target.addEventListener("seeked", () => { syncingRef.current = false; }, { once: true });
     }
   }, []);
 
@@ -235,9 +241,8 @@ function App() {
           }
         })
         .catch((err) => {
-          if (err.name !== "AbortError") {
-            console.error("Failed to load motion stats:", err);
-            if (loadingJobRef.current === thisJobId) setMotionStatsLoading(false);
+          if (err.name !== "AbortError" && loadingJobRef.current === thisJobId) {
+            setMotionStatsLoading(false);
           }
         });
     }
@@ -303,7 +308,7 @@ function App() {
           <div className="header-left">
             <div className="title-row">
               <h1 className="title">WORM TRACKER</h1>
-              <span className="version">v1.1.0</span>
+              <span className="version">v1.1.1</span>
             </div>
             <p className="subtitle">C. elegans motion analysis</p>
           </div>

@@ -57,12 +57,24 @@ def main() -> None:
         browser_thread.start()
 
     import uvicorn
-    # Pass fd so uvicorn reuses the already-bound socket (no re-bind race).
-    uvicorn.run(
-        "app.main:app",
-        fd=sock.fileno(),
-        log_level="warning",
-    )
+    # On POSIX we pass the already-bound socket fd directly so uvicorn inherits
+    # it without a re-bind race.  On Windows, fd= is not supported (no fd
+    # inheritance for sockets), so we close our socket first and pass host/port
+    # instead — there is a small race window but it's acceptable on Windows.
+    if sys.platform == "win32":
+        sock.close()
+        uvicorn.run(
+            "app.main:app",
+            host="127.0.0.1",
+            port=port,
+            log_level="warning",
+        )
+    else:
+        uvicorn.run(
+            "app.main:app",
+            fd=sock.fileno(),
+            log_level="warning",
+        )
 
 
 if __name__ == "__main__":

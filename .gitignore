@@ -10,8 +10,8 @@ sample-data/
 
 # --- User config and outputs live outside the repo (these legacy paths are kept ignored for safety) ---
 # Outputs default : ~/Documents/WormTracker/
+# Uploads         : ~/Documents/WormTracker/uploads/  (co-located with outputs)
 # Config          : ~/Library/Application Support/WormTracker/config.json
-# Uploads         : ~/Library/Application Support/WormTracker/uploads/
 app/uploads/
 app/outputs/
 app/jobs.db

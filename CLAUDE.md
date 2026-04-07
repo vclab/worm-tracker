@@ -89,7 +89,7 @@ Partial worms (touching frame edges) are tracked but excluded from final output;
 
 **`HeadTailCorrector.jsx`** — Fetches keypoint data, draws head/tail overlay on a canvas over the video, lets user flip individual worms.
 
-**`MotionCharts.jsx`** — Recharts heatmap + timeline chart for per-worm motion stats (overall, head, tail).
+**`MotionCharts.jsx`** — Recharts heatmap + timeline chart for per-worm motion stats (overall, head, mid-body, tail).
 
 **`Settings.jsx`** — Settings panel (⚙ button in header). Lets user change the outputs directory; shows current path and warns that a restart is required.
 
@@ -99,14 +99,14 @@ Partial worms (touching frame edges) are tracked but excluded from final output;
 
 ### Packaged app (`launcher.py` + `worm_tracker.spec`)
 
-`launcher.py` is the PyInstaller entry point. It binds a socket (keeping it open to avoid port-race), opens the browser after a short delay, then starts uvicorn passing the socket fd directly.
+`launcher.py` is the PyInstaller entry point. It binds a socket (keeping it open to avoid port-race), opens the browser after a short delay, then starts uvicorn. On POSIX, the socket fd is passed directly to uvicorn; on Windows, the socket is closed and uvicorn is given host/port instead (fd= is not supported on Windows).
 
 `worm_tracker.spec` bundles: `frontend/dist/` → `frontend_dist/`, `app/` package, `imageio_ffmpeg/` (includes static arm64 ffmpeg binary). FFmpeg is resolved via `imageio_ffmpeg.get_ffmpeg_exe()` at runtime.
 
 ## File Locations
 
 - Config: `~/Library/Application Support/WormTracker/config.json` (macOS) — stores `outputs_dir`
-- Uploads: `~/Library/Application Support/WormTracker/uploads/` — temp, deleted after processing
+- Uploads: `{outputs_dir}/uploads/` — temp, deleted after processing (co-located with outputs)
 - Outputs: `{outputs_dir}/{job_id}/{timestamp}_{output_name}/` — default `~/Documents/WormTracker/`
 - Job database: `{outputs_dir}/jobs.db` — one DB per outputs folder, lives alongside the outputs
 
@@ -118,8 +118,8 @@ The outputs directory is user-configurable via the Settings panel (⚙ in the UI
 - **Original**: `*_original.*` — copy of input video stored alongside outputs
 - **Metadata**: `*_metadata.yaml` — git version, timestamp, parameters, frame count
 - **Keypoints**: `*_keypoints.npz` — per-worm arrays `(num_keypoints, frames, 2)` in `[y, x]` order; partial worms stored under `partial_{id}` key
-- **Motion Stats**: `*_motion_stats.json` — per-worm motion values (overall, head, tail) and aggregate stats
-- **CSV**: `*_summary.csv` and `*_timeseries.csv` — exported for downstream analysis
+- **Motion Stats**: `*_motion_stats.json` — per-worm motion values (overall, head, mid-body, tail) and aggregate stats
+- **CSV**: `*_summary.csv` — one row per worm with mean overall/head/mid/tail motion; `*_timeseries.csv` — columns `frame, worm_id, head_motion, mid_motion, tail_motion` per downsampled window
 
 ## No Automated Tests
 

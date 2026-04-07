@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import shutil
 import json
@@ -15,11 +16,22 @@ import yaml
 from datetime import datetime
 import subprocess
 
-def get_git_commit_hash():
+logger = logging.getLogger(__name__)
+
+def _compute_git_commit_hash():
     try:
-        return subprocess.check_output(["git", "rev-parse", "--short", "HEAD"]).decode().strip()
+        return subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            timeout=3,
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
     except Exception:
         return "not-a-git-repo"
+
+_GIT_COMMIT_HASH = _compute_git_commit_hash()
+
+def get_git_commit_hash():
+    return _GIT_COMMIT_HASH
 
 def preprocess_frame(frame):
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -81,9 +93,19 @@ def measure_width_at_point(pt, next_pt, mask):
     # Perpendicular direction
     perpendicular = np.array([-direction[1], direction[0]]) / norm
 
+    # Derive search half-range from the mask bounding-box diagonal so the
+    # measurement scales with worm size and video resolution.  Clamp between
+    # 10 px (minimum for tiny worms) and 200 px (maximum for very large ones).
+    rows, cols = np.where(mask > 0)
+    if len(rows) > 0:
+        bbox_diag = np.hypot(rows.max() - rows.min(), cols.max() - cols.min())
+        half_range = int(np.clip(bbox_diag / 4, 10, 200))
+    else:
+        half_range = 20  # fallback
+
     # Sample along perpendicular line and count mask pixels
     width = 0
-    for d in range(-20, 21):
+    for d in range(-half_range, half_range + 1):
         sample = np.array(pt) + d * perpendicular
         y, x = int(round(sample[0])), int(round(sample[1]))
         if 0 <= y < mask.shape[0] and 0 <= x < mask.shape[1]:
@@ -112,8 +134,16 @@ def get_skeleton_points(mask, num_points):
     if len(endpoints) < 2:
         return None
 
-    start = tuple(endpoints[0])
-    end = tuple(endpoints[-1])
+    # Pick the two endpoints that are farthest apart rather than first/last in
+    # raster order — raster order can select two spatially close points for a
+    # coiled or diagonal worm, producing a short or incorrect skeleton path.
+    if len(endpoints) == 2:
+        start, end = tuple(endpoints[0]), tuple(endpoints[1])
+    else:
+        diffs = endpoints[:, np.newaxis, :] - endpoints[np.newaxis, :, :]
+        dist_matrix = np.linalg.norm(diffs, axis=2)
+        i, j = np.unravel_index(np.argmax(dist_matrix), dist_matrix.shape)
+        start, end = tuple(endpoints[i]), tuple(endpoints[j])
     try:
         path, _ = route_through_array(invert(skeleton).astype(np.float32), start, end, fully_connected=True)
     except Exception:
@@ -134,14 +164,39 @@ def get_skeleton_points(mask, num_points):
     indices = np.linspace(0, len(path) - 1, num=num_points, dtype=int)
     return path[indices]
 
+_MAX_WORMS = 50  # cap to prevent O(N²) blowup on crowded plates
+
+
 def compute_cost_matrix(current_pts, prev_pts):
-    cost = np.zeros((len(prev_pts), len(current_pts)))
-    for i, prev in enumerate(prev_pts):
-        for j, curr in enumerate(current_pts):
-            centroid_dist = np.linalg.norm(np.mean(prev, axis=0) - np.mean(curr, axis=0))
-            shape_dist = np.mean(np.linalg.norm(prev - curr, axis=1))
-            cost[i, j] = 0.7 * centroid_dist + 0.3 * shape_dist
-    return cost
+    """Vectorised pairwise cost between previous and current worm keypoint sets.
+
+    Cost = 0.7 × centroid distance + 0.3 × mean per-keypoint distance.
+    Both inputs are capped at _MAX_WORMS to bound runtime.
+    """
+    prev_pts    = prev_pts[:_MAX_WORMS]
+    current_pts = current_pts[:_MAX_WORMS]
+
+    n_prev = len(prev_pts)
+    n_curr = len(current_pts)
+
+    # Stack into arrays: (N, K, 2)
+    prev_arr = np.array(prev_pts)    # (n_prev, K, 2)
+    curr_arr = np.array(current_pts) # (n_curr, K, 2)
+
+    # Centroid distance: (n_prev, n_curr)
+    prev_centroids = prev_arr.mean(axis=1)  # (n_prev, 2)
+    curr_centroids = curr_arr.mean(axis=1)  # (n_curr, 2)
+    centroid_dist = np.linalg.norm(
+        prev_centroids[:, np.newaxis, :] - curr_centroids[np.newaxis, :, :], axis=2
+    )  # (n_prev, n_curr)
+
+    # Shape distance: mean per-keypoint Euclidean distance, (n_prev, n_curr)
+    # prev_arr[:, np.newaxis] broadcasts over n_curr; curr_arr[np.newaxis] over n_prev
+    shape_dist = np.linalg.norm(
+        prev_arr[:, np.newaxis, :, :] - curr_arr[np.newaxis, :, :, :], axis=3
+    ).mean(axis=2)  # (n_prev, n_curr)
+
+    return 0.7 * centroid_dist + 0.3 * shape_dist
 
 def draw_tracks(frame, worm_keypoints, worm_ids, keypoints_per_worm, partial_flags=None):
     """
@@ -151,10 +206,17 @@ def draw_tracks(frame, worm_keypoints, worm_ids, keypoints_per_worm, partial_fla
         partial_flags: list of bools indicating if each worm is partially visible.
                        Partial worms are drawn with a magenta outline indicator.
     """
+    # Build a colour palette that scales to any keypoints_per_worm value.
+    # Use HSV interpolation from red (head, hue=0) through green to blue (tail, hue=240).
+    def _hsv_to_bgr(h_deg: float, s: float = 1.0, v: float = 1.0):
+        import colorsys
+        r, g, b = colorsys.hsv_to_rgb(h_deg / 360.0, s, v)
+        return (int(b * 255), int(g * 255), int(r * 255))  # OpenCV uses BGR
+
+    n = max(keypoints_per_worm, 1)
     keypoint_colors = [
-        (255, 0, 0), (255, 64, 0), (255, 128, 0), (255, 191, 0), (255, 255, 0),
-        (191, 255, 0), (128, 255, 0), (64, 255, 0), (0, 255, 0), (0, 255, 64),
-        (0, 255, 128), (0, 255, 191), (0, 255, 255), (0, 191, 255), (0, 128, 255)
+        _hsv_to_bgr(240.0 * k / (n - 1) if n > 1 else 0.0)
+        for k in range(n)
     ]
     partial_color = (255, 0, 255)  # Magenta for partial worms
 
@@ -162,7 +224,7 @@ def draw_tracks(frame, worm_keypoints, worm_ids, keypoints_per_worm, partial_fla
         is_partial = partial_flags[i] if partial_flags else False
 
         for k, pt in enumerate(points):
-            color = keypoint_colors[k] if k < len(keypoint_colors) else (255, 255, 255)
+            color = keypoint_colors[k] if k < len(keypoint_colors) else keypoint_colors[-1]
             x, y = int(pt[1]), int(pt[0])
 
             if is_partial:
@@ -201,8 +263,9 @@ def compute_motion_stats(keypoint_tracks):
     worm_ids = []  # Track actual worm IDs
     worm_motion_values = []  # One value per worm: avg movement per keypoint per frame
     head_motion_values = []  # Head (keypoint 0) motion per worm
+    mid_motion_values = []   # Mid-body (middle keypoint) motion per worm
     tail_motion_values = []  # Tail (last keypoint) motion per worm
-    per_frame_data = {}  # Per-frame motion for time series: {worm_id: {head: [...], tail: [...]}}
+    per_frame_data = {}  # Per-frame motion for time series: {worm_id: {head: [...], mid: [...], tail: [...]}}
 
     for worm_id, kp_list in keypoint_tracks.items():
         # kp_list structure: kp_list[keypoint_idx] = list of [y,x] per frame
@@ -233,6 +296,11 @@ def compute_motion_stats(keypoint_tracks):
         head_distances = distances[0]  # Shape: (num_frames-1,)
         avg_head_motion = np.mean(head_distances)
 
+        # Mid-body motion (middle keypoint)
+        mid_idx = num_keypoints // 2
+        mid_distances = distances[mid_idx]  # Shape: (num_frames-1,)
+        avg_mid_motion = np.mean(mid_distances)
+
         # Tail motion (last keypoint)
         tail_distances = distances[-1]  # Shape: (num_frames-1,)
         avg_tail_motion = np.mean(tail_distances)
@@ -240,6 +308,7 @@ def compute_motion_stats(keypoint_tracks):
         worm_ids.append(worm_id)
         worm_motion_values.append(avg_movement)
         head_motion_values.append(float(avg_head_motion))
+        mid_motion_values.append(float(avg_mid_motion))
         tail_motion_values.append(float(avg_tail_motion))
 
         # Store per-frame data for time series (downsample if too many frames)
@@ -251,16 +320,22 @@ def compute_motion_stats(keypoint_tracks):
                 float(np.mean(head_distances[i:i+window_size]))
                 for i in range(0, num_transitions, window_size)
             ]
+            mid_downsampled = [
+                float(np.mean(mid_distances[i:i+window_size]))
+                for i in range(0, num_transitions, window_size)
+            ]
             tail_downsampled = [
                 float(np.mean(tail_distances[i:i+window_size]))
                 for i in range(0, num_transitions, window_size)
             ]
         else:
             head_downsampled = [float(x) for x in head_distances]
+            mid_downsampled = [float(x) for x in mid_distances]
             tail_downsampled = [float(x) for x in tail_distances]
 
         per_frame_data[worm_id] = {
             "head": head_downsampled,
+            "mid": mid_downsampled,
             "tail": tail_downsampled,
             "window_size": window_size
         }
@@ -270,6 +345,7 @@ def compute_motion_stats(keypoint_tracks):
 
     worm_motion_array = np.array(worm_motion_values)
     head_motion_array = np.array(head_motion_values)
+    mid_motion_array  = np.array(mid_motion_values)
     tail_motion_array = np.array(tail_motion_values)
 
     motion_stats = {
@@ -286,6 +362,12 @@ def compute_motion_stats(keypoint_tracks):
         "head_min_motion": float(np.min(head_motion_array)),
         "head_max_motion": float(np.max(head_motion_array)),
         "per_worm_head_motion": head_motion_values,
+        # Mid-body motion stats (middle keypoint, index num_keypoints // 2)
+        "mid_mean_motion": float(np.mean(mid_motion_array)),
+        "mid_std_motion": float(np.std(mid_motion_array)),
+        "mid_min_motion": float(np.min(mid_motion_array)),
+        "mid_max_motion": float(np.max(mid_motion_array)),
+        "per_worm_mid_motion": mid_motion_values,
         # Tail motion stats
         "tail_mean_motion": float(np.mean(tail_motion_array)),
         "tail_std_motion": float(np.std(tail_motion_array)),
@@ -305,80 +387,82 @@ def export_csv_files(motion_stats, output_dir, base_name):
 
     Creates two files:
     - {base_name}_timeseries.csv: Per-frame motion data for all worms
-    - {base_name}_summary.csv: Summary statistics per worm
+      Columns: frame, worm_id, head_motion, mid_motion, tail_motion
+    - {base_name}_summary.csv: Per-worm summary + aggregate stats
+      Columns: worm_id, overall_motion, head_motion, mid_motion, tail_motion
+      Followed by aggregate rows with row_type='aggregate'.
     """
+    import logging as _log
+    _logger = _log.getLogger(__name__)
+
     if not motion_stats:
         return None, None
 
-    # Export timeseries CSV
+    # ------------------------------------------------------------------
+    # Timeseries CSV
+    # ------------------------------------------------------------------
     timeseries_path = os.path.join(output_dir, f"{base_name}_timeseries.csv")
     with open(timeseries_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow(['frame', 'worm_id', 'head_motion', 'tail_motion'])
+        writer.writerow(['frame', 'worm_id', 'head_motion', 'mid_motion', 'tail_motion'])
 
         per_frame = motion_stats.get('per_frame_motion', {})
         for worm_id, data in per_frame.items():
             head = data.get('head', [])
+            mid  = data.get('mid', [])
             tail = data.get('tail', [])
             window_size = data.get('window_size', 1)
-
-            for i, (h, t) in enumerate(zip(head, tail)):
+            n = min(len(head), len(tail))
+            if not mid:
+                mid = [None] * n
+            for i in range(n):
                 frame = i * window_size
-                writer.writerow([frame, worm_id, f"{h:.6f}", f"{t:.6f}"])
+                writer.writerow([
+                    frame, worm_id,
+                    f"{head[i]:.6f}",
+                    f"{mid[i]:.6f}" if mid[i] is not None else "",
+                    f"{tail[i]:.6f}",
+                ])
 
-    print(f"Timeseries CSV saved at: {timeseries_path}")
+    _logger.info("Timeseries CSV saved at: %s", timeseries_path)
 
-    # Export summary CSV
+    # ------------------------------------------------------------------
+    # Summary CSV
+    # ------------------------------------------------------------------
     summary_path = os.path.join(output_dir, f"{base_name}_summary.csv")
     with open(summary_path, 'w', newline='') as f:
         writer = csv.writer(f)
-        writer.writerow([
-            'worm_id', 'overall_motion', 'head_motion', 'tail_motion'
-        ])
+        # Per-worm rows
+        writer.writerow(['row_type', 'worm_id', 'overall_motion', 'head_motion', 'mid_motion', 'tail_motion'])
 
         worm_ids = motion_stats.get('worm_ids', [])
-        overall = motion_stats.get('per_worm_motion', [])
-        head = motion_stats.get('per_worm_head_motion', [])
-        tail = motion_stats.get('per_worm_tail_motion', [])
+        overall  = motion_stats.get('per_worm_motion', [])
+        head     = motion_stats.get('per_worm_head_motion', [])
+        mid      = motion_stats.get('per_worm_mid_motion', [])
+        tail     = motion_stats.get('per_worm_tail_motion', [])
 
         for i, worm_id in enumerate(worm_ids):
             writer.writerow([
+                'worm',
                 worm_id,
                 f"{overall[i]:.6f}" if i < len(overall) else "",
-                f"{head[i]:.6f}" if i < len(head) else "",
-                f"{tail[i]:.6f}" if i < len(tail) else ""
+                f"{head[i]:.6f}"    if i < len(head)    else "",
+                f"{mid[i]:.6f}"     if i < len(mid)     else "",
+                f"{tail[i]:.6f}"    if i < len(tail)    else "",
             ])
 
-        # Add aggregate row
-        writer.writerow([])
-        writer.writerow(['# Aggregate Statistics'])
-        writer.writerow(['metric', 'overall', 'head', 'tail'])
-        writer.writerow([
-            'mean',
-            f"{motion_stats.get('mean_motion', 0):.6f}",
-            f"{motion_stats.get('head_mean_motion', 0):.6f}",
-            f"{motion_stats.get('tail_mean_motion', 0):.6f}"
-        ])
-        writer.writerow([
-            'std',
-            f"{motion_stats.get('std_motion', 0):.6f}",
-            f"{motion_stats.get('head_std_motion', 0):.6f}",
-            f"{motion_stats.get('tail_std_motion', 0):.6f}"
-        ])
-        writer.writerow([
-            'min',
-            f"{motion_stats.get('min_motion', 0):.6f}",
-            f"{motion_stats.get('head_min_motion', 0):.6f}",
-            f"{motion_stats.get('tail_min_motion', 0):.6f}"
-        ])
-        writer.writerow([
-            'max',
-            f"{motion_stats.get('max_motion', 0):.6f}",
-            f"{motion_stats.get('head_max_motion', 0):.6f}",
-            f"{motion_stats.get('tail_max_motion', 0):.6f}"
-        ])
+        # Aggregate rows — same columns, row_type distinguishes them
+        for metric in ('mean', 'std', 'min', 'max'):
+            writer.writerow([
+                f"aggregate_{metric}",
+                "",
+                f"{motion_stats.get(f'{metric}_motion', 0):.6f}",
+                f"{motion_stats.get(f'head_{metric}_motion', 0):.6f}",
+                f"{motion_stats.get(f'mid_{metric}_motion', 0):.6f}",
+                f"{motion_stats.get(f'tail_{metric}_motion', 0):.6f}",
+            ])
 
-    print(f"Summary CSV saved at: {summary_path}")
+    _logger.info("Summary CSV saved at: %s", summary_path)
 
     return timeseries_path, summary_path
 
@@ -396,10 +480,8 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        print(f"Error: Cannot open video {video_path}")
-        cap.release()
         shutil.rmtree(frames_dir, ignore_errors=True)
-        return None
+        raise RuntimeError(f"Cannot open video: {video_path}")
 
     input_fps = cap.get(cv2.CAP_PROP_FPS) or 30
     _vid_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -432,7 +514,6 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
 
             # Check for cancellation
             if cancel_check and cancel_check():
-                print("Processing cancelled by user")
                 if progress_callback:
                     progress_callback("cancelled", frame_idx, total_frames)
                 return None
@@ -523,15 +604,13 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
 
     image_files = sorted([f for f in os.listdir(frames_dir) if f.endswith(".png")])
     if not image_files:
-        print("No frames saved. No video generated.")
         shutil.rmtree(frames_dir, ignore_errors=True)
-        return None
+        raise RuntimeError("No frames were written — video may be empty or unreadable")
 
     first_image = cv2.imread(os.path.join(frames_dir, image_files[0]))
     if first_image is None:
-        print(f"Error: Cannot read first frame {image_files[0]}")
         shutil.rmtree(frames_dir, ignore_errors=True)
-        return None
+        raise RuntimeError(f"Cannot read first frame: {image_files[0]}")
 
     height, width, _ = first_image.shape
     out = cv2.VideoWriter(output_video_path, cv2.VideoWriter_fourcc(*'mp4v'), input_fps, (width, height))
@@ -540,7 +619,6 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     for i, filename in enumerate(tqdm(image_files, desc="Generating video", unit="frame")):
         # Check for cancellation
         if cancel_check and cancel_check():
-            print("Video generation cancelled by user")
             out.release()
             if progress_callback:
                 progress_callback("cancelled", i, num_images)
@@ -548,7 +626,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
 
         frame = cv2.imread(os.path.join(frames_dir, filename))
         if frame is None:
-            print(f"Warning: Cannot read frame {filename}, skipping")
+            logger.warning("Cannot read frame %s, skipping", filename)
             continue
         out.write(frame)
         # Report progress every 10 frames
@@ -556,9 +634,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
             progress_callback("generating", i, num_images)
 
     out.release()
-    print(f"Tracking complete.")
-    print(f"Output folder: {job_output_dir}")
-    print(f"Video saved as: {output_video_path}")
+    logger.info("Tracking complete. Output folder: %s", job_output_dir)
 
     # Filter out worms with fewer than 'persistence' frames AND worms that were ever partial
     filtered_tracks = {
@@ -568,9 +644,9 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     num_low_persistence = sum(1 for worm_id, frames in keypoint_tracks.items() if len(frames[0]) < persistence)
     num_partial = sum(1 for worm_id in keypoint_tracks if worm_id in partial_worm_ids and len(keypoint_tracks[worm_id][0]) >= persistence)
     num_retained = len(filtered_tracks)
-    print(f"Discarded {num_low_persistence} worm(s) with fewer than {persistence} frames")
-    print(f"Discarded {num_partial} partial worm(s) (touched frame edge)")
-    print(f"Retained {num_retained} fully-visible worm(s)")
+    logger.info("Discarded %d worm(s) with fewer than %d frames", num_low_persistence, persistence)
+    logger.info("Discarded %d partial worm(s) (touched frame edge)", num_partial)
+    logger.info("Retained %d fully-visible worm(s)", num_retained)
 
     # Save tracking metadata to YAML
     # Extract original filename (strip job_id__ prefix if present)
@@ -599,7 +675,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     metadata_path = os.path.join(job_output_dir, f"{job_folder}_metadata.yaml")
     with open(metadata_path, 'w') as f:
         yaml.dump(metadata, f)
-    print(f"Metadata saved at: {metadata_path}")
+    logger.info("Metadata saved at: %s", metadata_path)
 
     # Save worm keypoints to .npz (per worm: [frame][keypoint][y,x])
     # Retained worms use their numeric ID as key; partial worms use "partial_{id}" prefix
@@ -610,7 +686,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         if worm_id in partial_worm_ids:
             npz_data[f"partial_{worm_id}"] = np.array(frames)
     np.savez_compressed(keypoints_npz_path, **npz_data)
-    print(f"Worm keypoints saved at: {keypoints_npz_path}")
+    logger.info("Worm keypoints saved at: %s", keypoints_npz_path)
 
     # Compute and save motion statistics (filtered_tracks already filtered by persistence)
     motion_stats = compute_motion_stats(filtered_tracks)
@@ -618,7 +694,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         motion_stats_path = os.path.join(job_output_dir, f"{job_folder}_motion_stats.json")
         with open(motion_stats_path, 'w') as f:
             json.dump(motion_stats, f, indent=2)
-        print(f"Motion stats saved at: {motion_stats_path}")
+        logger.info("Motion stats saved at: %s", motion_stats_path)
 
         # Export CSV files for data science analysis
         export_csv_files(motion_stats, job_output_dir, job_folder)
@@ -626,9 +702,9 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     # Delete frames directory unless keep_frames is True
     if not keep_frames:
         shutil.rmtree(frames_dir)
-        print(f"Frames deleted.")
+        logger.info("Frames deleted.")
     else:
-        print(f"Frames saved in: {frames_dir}")
+        logger.info("Frames saved in: %s", frames_dir)
 
     if show_video:
         try:
@@ -640,7 +716,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
             else:
                 subprocess.Popen(["xdg-open", output_video_path])
         except Exception as e:
-            print(f"Could not open video: {e}")
+            logger.warning("Could not open video: %s", e)
 
     # Signal completion
     if progress_callback:
@@ -664,6 +740,7 @@ def main():
     parser.add_argument('--persistence', type=int, default=50, help='Minimum frames a worm must be tracked to be included (default: 50)')
 
     args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     run_tracking(args.video_path, args.output_dir, args.keypoints, args.min_area, args.max_age, args.show, args.output_name, args.keep_frames, args.persistence)
 
 

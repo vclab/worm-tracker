@@ -2,15 +2,16 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTa
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager, contextmanager
 from pathlib import Path
 from uuid import uuid4
-from contextlib import contextmanager
 from datetime import datetime, timezone
 import logging
 import pydantic
 import shutil
 import subprocess
 import sys
+import traceback
 import zipfile
 import json
 import threading
@@ -28,7 +29,23 @@ import cv2
 from app.worm_tracker import run_tracking, compute_motion_stats, export_csv_files, draw_tracks
 from app.config import load_config, save_config, get_config_dir
 
-app = FastAPI(title="Worm Tracker API (Local)")
+@asynccontextmanager
+async def _lifespan(application: FastAPI):
+    # Startup is handled at module level (lock + DB init + worker thread).
+    yield
+    # Shutdown: explicitly release the outputs-directory lock so the lock file
+    # is not left stale on platforms where the kernel might not release it
+    # immediately (e.g. NFS mounts).
+    global _lock_fh
+    if _lock_fh is not None:
+        try:
+            _lock_fh.close()
+        except Exception:
+            pass
+        _lock_fh = None
+
+
+app = FastAPI(title="Worm Tracker API (Local)", lifespan=_lifespan)
 
 # Active processing jobs: job_id -> {"cancel_event": Event}
 active_jobs: dict[str, dict] = {}
@@ -56,12 +73,12 @@ app.add_middleware(
 APP_DIR = Path(__file__).resolve().parent
 
 # ---------------------------------------------------------------------------
-# Paths — outputs and DB are user-configurable; uploads are app-managed temp
+# Paths — outputs and DB are user-configurable; uploads live alongside outputs
 # ---------------------------------------------------------------------------
 
 _config = load_config()
 OUTPUTS = Path(_config["outputs_dir"])
-UPLOADS = get_config_dir() / "uploads"   # temp files, not user data
+UPLOADS = OUTPUTS / "uploads"   # temp files, co-located with outputs so they follow the same drive
 try:
     OUTPUTS.mkdir(exist_ok=True, parents=True)
 except Exception as _exc:
@@ -99,6 +116,42 @@ def _resolve_ffmpeg() -> str:
 FFMPEG_BIN = _resolve_ffmpeg()
 
 # ---------------------------------------------------------------------------
+# Outputs-directory lock — one process per outputs folder
+# ---------------------------------------------------------------------------
+# We hold an exclusive flock on wormtracker.lock for the lifetime of the
+# process.  The kernel releases the lock automatically on process death
+# (even SIGKILL), so orphaned instances can never block a fresh start.
+
+_LOCK_PATH = OUTPUTS / "wormtracker.lock"
+_lock_fh = None   # kept open to hold the lock
+
+
+def _acquire_outputs_lock() -> None:
+    """Acquire an exclusive advisory lock on the outputs directory.
+
+    Raises RuntimeError if another WormTracker process already owns it.
+    No-op on Windows (fcntl unavailable; SQLite WAL still prevents DB
+    corruption, just without single-instance enforcement).
+    """
+    global _lock_fh
+    if sys.platform == "win32":
+        return
+    import fcntl
+    fh = open(_LOCK_PATH, "w")
+    try:
+        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fh.close()
+        raise RuntimeError(
+            f"Another WormTracker process is already using {OUTPUTS}. "
+            "Close the other instance first."
+        )
+    fh.write(str(os.getpid()))
+    fh.flush()
+    _lock_fh = fh   # keep fd open — lock released when process exits
+
+
+# ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
 
@@ -119,6 +172,7 @@ def init_db():
                 job_id              TEXT PRIMARY KEY,
                 status              TEXT NOT NULL DEFAULT 'pending',
                 created_at          TEXT NOT NULL,
+                created_at_unix     INTEGER,
                 started_at          TEXT,
                 finished_at         TEXT,
                 original_filename   TEXT,
@@ -137,27 +191,37 @@ def init_db():
             )
         """)
         conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_jobs_created_at ON jobs (created_at DESC)"
+            "CREATE INDEX IF NOT EXISTS idx_jobs_created_at_unix ON jobs (created_at_unix DESC)"
         )
         # Migration: add columns introduced after initial schema (for existing DBs).
         # Columns already in CREATE TABLE above are intentionally absent from this list.
         for stmt in [
             "ALTER TABLE jobs ADD COLUMN regen_pending INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE jobs ADD COLUMN created_at_unix INTEGER",
         ]:
             try:
                 conn.execute(stmt)
             except sqlite3.OperationalError:
                 pass  # column already exists
+        # Recover jobs stuck in 'processing' from a previous crashed server — they
+        # will never be re-picked by the worker (which only selects 'pending').
+        conn.execute(
+            "UPDATE jobs SET status='error', finished_at=?, error_msg=? "
+            "WHERE status='processing'",
+            (_now_iso(), "Server restarted while job was processing"),
+        )
         conn.commit()
 
 
 @contextmanager
-def get_db():
+def get_db(readonly: bool = False):
+    """Yield a SQLite connection.  Commits on exit unless *readonly* is True."""
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
-        conn.commit()
+        if not readonly:
+            conn.commit()
     finally:
         conn.close()
 
@@ -166,31 +230,43 @@ def migrate_existing_outputs():
     """Import any output directories not yet tracked in the DB (best-effort)."""
     if not OUTPUTS.exists():
         return
-    with get_db() as conn:
+    with get_db(readonly=True) as conn:
         existing = {r[0] for r in conn.execute("SELECT job_id FROM jobs").fetchall()}
+        # Directories that live inside OUTPUTS but are not job output folders.
+        _NON_JOB_DIRS = {"uploads", "wormtracker.lock"}
         for job_dir in OUTPUTS.iterdir():
             if not job_dir.is_dir():
+                continue
+            if job_dir.name in _NON_JOB_DIRS:
                 continue
             job_id = job_dir.name
             if job_id in existing:
                 continue
             mp4s = [p for p in job_dir.glob("**/*.mp4") if "_tracked" in p.name]
             if not mp4s:
-                mp4s = list(job_dir.glob("**/*.mp4"))
+                # No tracked video — skip incomplete/failed output dirs rather than
+                # accidentally picking up a raw or original MP4 as the tracked video.
+                continue
             zips = [z for z in job_dir.glob("**/*.zip") if not z.name.endswith("_data.zip")]
             data_zips = [z for z in job_dir.glob("**/*.zip") if z.name.endswith("_data.zip")]
             jsons = list(job_dir.glob("**/*.json"))
             originals = list(job_dir.glob("**/*_original.*"))
             # Derive output_subfolder from the tracked mp4's parent directory name
             output_subfolder = mp4s[0].parent.name if mp4s else None
-            created_at = datetime.fromtimestamp(job_dir.stat().st_mtime, tz=timezone.utc).isoformat()
+            _st = job_dir.stat()
+            # Prefer birthtime (macOS/BSD) as creation time; fall back to ctime
+            # (inode change time on Linux, creation time on Windows).  Avoid
+            # mtime which changes whenever any file inside the directory is written.
+            _ts = getattr(_st, "st_birthtime", None) or _st.st_ctime
+            created_at = datetime.fromtimestamp(_ts, tz=timezone.utc).isoformat()
+            created_at_unix = int(_ts)
             conn.execute(
                 """INSERT OR IGNORE INTO jobs
-                   (job_id, status, created_at, output_subfolder, video_path, original_video_path,
+                   (job_id, status, created_at, created_at_unix, output_subfolder, video_path, original_video_path,
                     package_path, data_csv_path, motion_stats_path)
-                   VALUES (?, 'done', ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, 'done', ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    job_id, created_at, output_subfolder,
+                    job_id, created_at, created_at_unix, output_subfolder,
                     f"/download/{job_id}/{mp4s[0].name}" if mp4s else None,
                     f"/download/{job_id}/{originals[0].name}" if originals else None,
                     f"/download/{job_id}/{zips[0].name}" if zips else None,
@@ -204,9 +280,57 @@ def _now_iso() -> str:
     return datetime.now(tz=timezone.utc).isoformat()
 
 
+def _now_unix() -> int:
+    """Current UTC time as integer Unix epoch seconds — used for reliable DB ordering."""
+    return int(datetime.now(tz=timezone.utc).timestamp())
+
+
 # ---------------------------------------------------------------------------
 # Queue worker
 # ---------------------------------------------------------------------------
+
+def _transcode_to_h264(src: Path, dst: Path, job_id: str = ""):
+    """Transcode *src* to H.264 at *dst*, deleting *src* on success.
+
+    Falls back to renaming *src* → *dst* if FFmpeg is unavailable or fails,
+    logging the error either way.
+    """
+    tag = f" for job {job_id}" if job_id else ""
+    try:
+        result = subprocess.run(
+            [
+                FFMPEG_BIN, "-y",
+                "-i", str(src),
+                "-vcodec", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-movflags", "+faststart",
+                "-preset", "veryfast",
+                "-crf", "23",
+                str(dst),
+            ],
+            check=True,
+            timeout=300,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+        )
+        src.unlink()
+    except FileNotFoundError:
+        logger.error("FFmpeg binary not found (%s)%s — falling back to raw video", FFMPEG_BIN, tag)
+        if src.exists():
+            src.rename(dst)
+    except subprocess.TimeoutExpired:
+        logger.error("FFmpeg transcoding timed out%s — falling back to raw video", tag)
+        if src.exists():
+            src.rename(dst)
+    except subprocess.CalledProcessError as exc:
+        stderr_out = exc.stderr.decode(errors="replace").strip() if exc.stderr else ""
+        logger.error(
+            "FFmpeg transcoding failed (rc=%d)%s — falling back to raw video\n%s",
+            exc.returncode, tag, stderr_out,
+        )
+        if src.exists():
+            src.rename(dst)
+
 
 def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, saved_path: Path):
     """Transcode, copy original, build ZIPs, update DB. Returns result dict or raises."""
@@ -229,36 +353,7 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
 
     # Transcode to H.264
     h264_mp4 = src_mp4.parent / f"{output_subfolder}_tracked.mp4"
-    try:
-        subprocess.run(
-            [
-                FFMPEG_BIN, "-y",
-                "-i", str(src_mp4),
-                "-vcodec", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart",
-                "-preset", "veryfast",
-                "-crf", "23",
-                str(h264_mp4),
-            ],
-            check=True,
-            timeout=300,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT,
-        )
-        src_mp4.unlink()
-    except FileNotFoundError:
-        logger.error("FFmpeg binary not found (%s) for job %s — falling back to raw video", FFMPEG_BIN, job_id)
-        if src_mp4.exists():
-            src_mp4.rename(h264_mp4)
-    except subprocess.TimeoutExpired:
-        logger.error("FFmpeg transcoding timed out for job %s — falling back to raw video", job_id)
-        if src_mp4.exists():
-            src_mp4.rename(h264_mp4)
-    except subprocess.CalledProcessError as exc:
-        logger.error("FFmpeg transcoding failed (rc=%d) for job %s — falling back to raw video", exc.returncode, job_id)
-        if src_mp4.exists():
-            src_mp4.rename(h264_mp4)
+    _transcode_to_h264(src_mp4, h264_mp4, job_id)
 
     if not h264_mp4.exists():
         raise RuntimeError("Tracked video was not produced — FFmpeg and fallback both failed")
@@ -294,7 +389,7 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
             zf.write(npz_files[0], arcname=npz_files[0].name)
         if json_files:
             zf.write(json_files[0], arcname=json_files[0].name)
-    tmp_zip.rename(package_zip)
+    tmp_zip.replace(package_zip)
 
     # Build CSV data ZIP (atomic)
     data_zip = src_mp4.parent / f"{output_subfolder}_data.zip"
@@ -303,7 +398,7 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
         with zipfile.ZipFile(tmp_data_zip, "w", zipfile.ZIP_DEFLATED) as zf:
             for csv_file in csv_files:
                 zf.write(csv_file, arcname=csv_file.name)
-        tmp_data_zip.rename(data_zip)
+        tmp_data_zip.replace(data_zip)
 
     motion_stats_file = json_files[0] if json_files else None
     original_video_path = (
@@ -345,7 +440,7 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
 
 def process_job(job_id: str):
     """Process a single job from the queue. Runs in the worker thread."""
-    with get_db() as conn:
+    with get_db(readonly=True) as conn:
         row = conn.execute("SELECT * FROM jobs WHERE job_id=?", (job_id,)).fetchone()
     if not row:
         return
@@ -354,11 +449,14 @@ def process_job(job_id: str):
     original_filename = job["original_filename"] or ""
     saved_path = UPLOADS / f"{job_id}__{original_filename}"
     job_dir = OUTPUTS / job_id
+
+    logger.info("Starting job %s | file: %s | upload exists: %s", job_id, saved_path, saved_path.exists())
     job_dir.mkdir(parents=True, exist_ok=True)
 
     cancel_event = threading.Event()
+    done_event   = threading.Event()
     with active_jobs_lock:
-        active_jobs[job_id] = {"cancel_event": cancel_event}
+        active_jobs[job_id] = {"cancel_event": cancel_event, "done_event": done_event}
 
     with get_db() as conn:
         conn.execute(
@@ -409,6 +507,7 @@ def process_job(job_id: str):
 
     with active_jobs_lock:
         active_jobs.pop(job_id, None)
+    done_event.set()  # unblock any delete_job waiting for us to finish
 
     # Cancelled
     if cancel_event.is_set():
@@ -426,7 +525,9 @@ def process_job(job_id: str):
 
     # Error from tracker
     if error_holder[0]:
-        logger.error("Job %s failed during tracking: %s", job_id, error_holder[0], exc_info=error_holder[0])
+        tb = "".join(traceback.format_exception(type(error_holder[0]), error_holder[0], error_holder[0].__traceback__))
+        print(f"[WORMTRACKER] Job {job_id} FAILED during tracking:\n{tb}", flush=True)
+        logger.error("Job %s failed during tracking:\n%s", job_id, tb)
         try:
             if saved_path.exists():
                 saved_path.unlink()
@@ -443,7 +544,8 @@ def process_job(job_id: str):
     try:
         _do_post_processing(job_id, job_dir, original_filename, saved_path)
     except Exception as e:
-        logger.error("Job %s failed during post-processing: %s", job_id, e, exc_info=True)
+        print(f"[WORMTRACKER] Job {job_id} FAILED during post-processing:\n{traceback.format_exc()}", flush=True)
+        logger.error("Job %s failed during post-processing:\n%s", job_id, traceback.format_exc())
         try:
             if saved_path.exists():
                 saved_path.unlink()
@@ -461,9 +563,9 @@ def queue_worker():
     backoff = 2
     while True:
         try:
-            with get_db() as conn:
+            with get_db(readonly=True) as conn:
                 row = conn.execute(
-                    "SELECT job_id FROM jobs WHERE status='pending' ORDER BY created_at LIMIT 1"
+                    "SELECT job_id FROM jobs WHERE status='pending' ORDER BY created_at_unix LIMIT 1"
                 ).fetchone()
             if row:
                 backoff = 2  # reset on successful DB access
@@ -477,6 +579,7 @@ def queue_worker():
 
 
 try:
+    _acquire_outputs_lock()
     init_db()
     migrate_existing_outputs()
 except Exception as _db_exc:
@@ -512,7 +615,7 @@ def _heartbeat_watchdog() -> None:
             # Also query DB in case active_jobs is empty but a job is still
             # marked processing (e.g. after an edge-case restart).
             try:
-                with get_db() as conn:
+                with get_db(readonly=True) as conn:
                     processing = conn.execute(
                         "SELECT 1 FROM jobs WHERE status='processing' LIMIT 1"
                     ).fetchone()
@@ -585,9 +688,9 @@ def heartbeat():
 def list_jobs(limit: int = 100, offset: int = 0):
     limit = min(max(1, limit), 1000)  # cap: never return more than 1000 rows
     offset = max(0, offset)
-    with get_db() as conn:
+    with get_db(readonly=True) as conn:
         rows = conn.execute(
-            "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            "SELECT * FROM jobs ORDER BY created_at_unix DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
     return [dict(r) for r in rows]
@@ -596,13 +699,16 @@ def list_jobs(limit: int = 100, offset: int = 0):
 @app.delete("/jobs/{job_id}")
 def delete_job(job_id: str):
     """Delete a job record, its output files, and any leftover upload file."""
-    # Signal cancellation if the job is actively processing
+    # Signal cancellation if the job is actively processing, then wait for
+    # the worker to finish before touching the filesystem (avoids deleting
+    # files that the worker is still writing).
     with active_jobs_lock:
         job_info = active_jobs.get(job_id)
-        if job_info:
-            job_info["cancel_event"].set()
+    if job_info:
+        job_info["cancel_event"].set()
+        job_info["done_event"].wait(timeout=30)  # up to 30 s for cooperative cancel
 
-    with get_db() as conn:
+    with get_db(readonly=True) as conn:
         row = conn.execute(
             "SELECT original_filename FROM jobs WHERE job_id=?", (job_id,)
         ).fetchone()
@@ -616,15 +722,22 @@ def delete_job(job_id: str):
         except Exception:
             pass
 
+    # Delete DB record first — if file deletion fails, the record is already
+    # gone so the UI won't show a broken entry pointing at missing files.
+    with get_db() as conn:
+        conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+
     job_dir = OUTPUTS / job_id
     try:
         if job_dir.exists():
             shutil.rmtree(job_dir)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.warning("Could not delete output directory for job %s: %s", job_id, e)
 
-    with get_db() as conn:
-        conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+    # Release the per-job NPZ lock so it doesn't leak memory indefinitely
+    with _npz_locks_lock:
+        _npz_locks.pop(job_id, None)
+
     return {"ok": True}
 
 
@@ -665,10 +778,30 @@ async def upload_video(
     if ext not in _ALLOWED_VIDEO_EXTENSIONS:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext or '(none)'}")
 
+    _MAX_UPLOAD_BYTES = 10 * 1024 ** 3  # 10 GB hard cap
     job_id = str(uuid4())
     saved_path = UPLOADS / f"{job_id}__{file.filename}"
-    with saved_path.open("wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    try:
+        total = 0
+        with saved_path.open("wb") as buffer:
+            chunk_size = 1024 * 1024  # 1 MB chunks
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _MAX_UPLOAD_BYTES:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File exceeds maximum allowed size of {_MAX_UPLOAD_BYTES // 1024**3} GB",
+                    )
+                buffer.write(chunk)
+    except HTTPException:
+        saved_path.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        saved_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail=f"Failed to save upload: {exc}")
 
     base_name = Path(file.filename).stem  # e.g. "worm_run1" from "worm_run1.mov"
     params_json = json.dumps({
@@ -681,9 +814,9 @@ async def upload_video(
     with get_db() as conn:
         conn.execute(
             """INSERT INTO jobs
-               (job_id, status, created_at, original_filename, output_name, params_json)
-               VALUES (?, 'pending', ?, ?, ?, ?)""",
-            (job_id, _now_iso(), file.filename, base_name, params_json),
+               (job_id, status, created_at, created_at_unix, original_filename, output_name, params_json)
+               VALUES (?, 'pending', ?, ?, ?, ?, ?)""",
+            (job_id, _now_iso(), _now_unix(), file.filename, base_name, params_json),
         )
 
     return {"job_id": job_id}
@@ -796,27 +929,7 @@ def regenerate_tracked_video(subdir: Path):
     if h264_mp4.exists():
         h264_mp4.unlink()
 
-    try:
-        subprocess.run(
-            [
-                FFMPEG_BIN, "-y",
-                "-i", str(raw_mp4),
-                "-vcodec", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-movflags", "+faststart",
-                "-preset", "veryfast",
-                "-crf", "23",
-                str(h264_mp4),
-            ],
-            check=True,
-            timeout=300,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.STDOUT,
-        )
-        raw_mp4.unlink()
-    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        if raw_mp4.exists():
-            raw_mp4.rename(h264_mp4)
+    _transcode_to_h264(raw_mp4, h264_mp4)
 
 
 def _rebuild_zips(subdir: Path):
@@ -835,7 +948,7 @@ def _rebuild_zips(subdir: Path):
         for f in [original, h264_mp4, yaml_file, npz_file, json_file]:
             if f and f.exists():
                 zf.write(f, arcname=f.name)
-    tmp.rename(package_zip)
+    tmp.replace(package_zip)
 
     if csv_files:
         data_zip = subdir / f"{subfolder}_data.zip"
@@ -843,13 +956,13 @@ def _rebuild_zips(subdir: Path):
         with zipfile.ZipFile(tmp_data, "w", zipfile.ZIP_DEFLATED) as zf:
             for csv_file in csv_files:
                 zf.write(csv_file, arcname=csv_file.name)
-        tmp_data.rename(data_zip)
+        tmp_data.replace(data_zip)
 
 
 @app.get("/jobs/{job_id}/keypoints")
 def get_keypoints(job_id: str):
     """Return head and tail positions per worm for all frames."""
-    with get_db() as conn:
+    with get_db(readonly=True) as conn:
         row = conn.execute(
             "SELECT output_subfolder FROM jobs WHERE job_id=?", (job_id,)
         ).fetchone()
@@ -909,7 +1022,22 @@ def _regen_and_rebuild(subdir: Path, job_id: str, motion_stats: dict | None = No
     try:
         with get_db() as conn:
             if regen_ok:
-                conn.execute("UPDATE jobs SET regen_pending=0 WHERE job_id=?", (job_id,))
+                # Refresh download paths — file names are stable but we update anyway
+                # to keep the DB in sync if anything changed during regeneration.
+                h264  = next(subdir.glob("*_tracked.mp4"), None)
+                pkg   = next(subdir.glob("*.zip"), None)
+                data  = next(subdir.glob("*_data.zip"), None)
+                conn.execute(
+                    """UPDATE jobs SET regen_pending=0,
+                           video_path=?, package_path=?, data_csv_path=?
+                       WHERE job_id=?""",
+                    (
+                        f"/download/{job_id}/{h264.name}"  if h264  else None,
+                        f"/download/{job_id}/{pkg.name}"   if pkg   else None,
+                        f"/download/{job_id}/{data.name}"  if data  else None,
+                        job_id,
+                    ),
+                )
             else:
                 conn.execute(
                     "UPDATE jobs SET regen_pending=0, error_msg=? WHERE job_id=?",
@@ -922,7 +1050,7 @@ def _regen_and_rebuild(subdir: Path, job_id: str, motion_stats: dict | None = No
 @app.post("/jobs/{job_id}/flip/{worm_id}")
 def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
     """Flip head/tail for a worm (reverse keypoint axis 0) and recompute stats."""
-    with get_db() as conn:
+    with get_db(readonly=True) as conn:
         row = conn.execute(
             "SELECT output_subfolder, regen_pending FROM jobs WHERE job_id=?", (job_id,)
         ).fetchone()
@@ -960,7 +1088,7 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
         except Exception as exc:
             tmp_npz.unlink(missing_ok=True)
             raise HTTPException(status_code=500, detail=f"NPZ validation failed: {exc}")
-        tmp_npz.rename(npz_path)
+        tmp_npz.replace(npz_path)
 
     # Recompute motion stats — convert arrays to list-of-lists format expected by compute_motion_stats
     # NPZ arrays: (num_keypoints, num_frames, 2); compute_motion_stats expects {wid: [[y,x], ...] per keypoint}
@@ -1012,12 +1140,16 @@ def rerun_job(job_id: str, body: _RerunIn):
     if not (0 <= body.persistence <= 10_000):
         raise HTTPException(status_code=400, detail="persistence must be 0–10000")
 
-    with get_db() as conn:
+    with get_db(readonly=True) as conn:
         row = conn.execute(
-            "SELECT original_filename, output_subfolder FROM jobs WHERE job_id=?", (job_id,)
+            "SELECT original_filename, output_subfolder, status FROM jobs WHERE job_id=?", (job_id,)
         ).fetchone()
-    if not row or not row["output_subfolder"]:
-        raise HTTPException(status_code=404, detail="Job not found or not completed")
+    if not row:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if row["status"] != "done":
+        raise HTTPException(status_code=400, detail=f"Cannot re-run a job with status '{row['status']}' — only 'done' jobs can be re-run")
+    if not row["output_subfolder"]:
+        raise HTTPException(status_code=404, detail="Job output not found")
 
     subdir = OUTPUTS / job_id / row["output_subfolder"]
     original_files = list(subdir.glob("*_original.*"))
@@ -1055,9 +1187,9 @@ def rerun_job(job_id: str, body: _RerunIn):
     with get_db() as conn:
         conn.execute(
             """INSERT INTO jobs
-               (job_id, status, created_at, original_filename, output_name, params_json)
-               VALUES (?, 'pending', ?, ?, ?, ?)""",
-            (new_job_id, _now_iso(), original_filename, Path(original_filename).stem, params_json),
+               (job_id, status, created_at, created_at_unix, original_filename, output_name, params_json)
+               VALUES (?, 'pending', ?, ?, ?, ?, ?)""",
+            (new_job_id, _now_iso(), _now_unix(), original_filename, Path(original_filename).stem, params_json),
         )
 
     return {"job_id": new_job_id}

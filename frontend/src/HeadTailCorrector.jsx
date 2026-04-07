@@ -142,7 +142,12 @@ export default function HeadTailCorrector({
         return;
       }
       if (data.ok) {
-        const kpData = await fetch(`${API}/jobs/${jobId}/keypoints`).then((r) => r.json());
+        const kpRes = await fetch(`${API}/jobs/${jobId}/keypoints`);
+        if (!kpRes.ok) {
+          setFlipError(`Flip succeeded but failed to reload keypoints (${kpRes.status})`);
+          return;
+        }
+        const kpData = await kpRes.json();
         setHeadPositions(kpData.head_positions || {});
         setTailPositions(kpData.tail_positions || {});
         if (data.motion_stats && onMotionStatsUpdated) {
