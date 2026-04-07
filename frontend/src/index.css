@@ -581,6 +581,37 @@ input[type="file"] {
   color: var(--muted);
 }
 
+/* ===== Used-parameters read-only display ===== */
+.used-params {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+.used-params-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+.used-params-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 20px;
+  font-size: 0.85rem;
+  color: #e5e7eb;
+}
+.used-params-key {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-right: 5px;
+}
+
 /* ===== Video Comparison Slider ===== */
 .video-compare {
   position: relative;

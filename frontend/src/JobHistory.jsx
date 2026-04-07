@@ -21,7 +21,7 @@ function formatDate(iso) {
   return new Date(iso).toLocaleString();
 }
 
-export default function JobHistory({ refreshKey = 0, onLoad }) {
+export default function JobHistory({ refreshKey = 0, onLoad, currentJobId = null, onDeleteCurrent }) {
   const [jobs, setJobs] = useState([]);
   const [open, setOpen] = useState(false);
   const [actionError, setActionError] = useState(null);
@@ -61,7 +61,6 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
 
   function showError(msg) {
     setActionError(msg);
-    setTimeout(() => setActionError(null), 5000);
   }
 
   async function handleCancel(jobId) {
@@ -79,6 +78,7 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
     try {
       setActionError(null);
       await fetch(`${API}/jobs/${jobId}`, { method: "DELETE" });
+      if (jobId === currentJobId && onDeleteCurrent) onDeleteCurrent();
       fetchJobs();
     } catch {
       showError("Failed to delete job");
@@ -97,8 +97,14 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
         </summary>
 
         {actionError && (
-          <div style={{ color: "#ef4444", fontSize: "0.8rem", marginBottom: 8 }}>
-            {actionError}
+          <div style={{ color: "#ef4444", fontSize: "0.8rem", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+            <span>{actionError}</span>
+            <button
+              onClick={() => setActionError(null)}
+              style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: "0.85rem", padding: 0, lineHeight: 1 }}
+            >
+              ✕
+            </button>
           </div>
         )}
         <div style={{ overflowX: "auto" }}>
@@ -116,9 +122,10 @@ export default function JobHistory({ refreshKey = 0, onLoad }) {
               {jobs.map((job) => {
                 const s = STATUS_STYLES[job.status] || STATUS_STYLES.cancelled;
                 const isActive = job.status === "pending" || job.status === "processing";
+                const isCurrent = job.job_id === currentJobId;
                 return (
-                  <tr key={job.job_id} style={{ borderBottom: "1px solid #1f2937" }}>
-                    <td style={{ ...td, whiteSpace: "nowrap", color: "#9ca3af" }}>
+                  <tr key={job.job_id} style={{ borderBottom: "1px solid #1f2937", background: isCurrent ? "rgba(99,102,241,0.08)" : "transparent" }}>
+                    <td style={{ ...td, whiteSpace: "nowrap", color: "#9ca3af", borderLeft: isCurrent ? "3px solid #6366f1" : "3px solid transparent" }}>
                       {formatDate(job.created_at)}
                     </td>
                     <td style={{ ...td, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}

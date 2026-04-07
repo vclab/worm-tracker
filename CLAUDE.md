@@ -55,11 +55,14 @@ python -m app.worm_tracker input.mov output_dir --keypoints 15 --min-area 50 --m
 - `GET /download/{job_id}/{filename}` — file download
 - `GET /jobs/{job_id}/keypoints` — returns head/tail positions per worm for head/tail correction UI
 - `POST /jobs/{job_id}/flip/{worm_id}` — flip head↔tail for a worm, recomputes stats + rebuilds ZIPs in background
+- `POST /jobs/{job_id}/rerun` — re-queue a completed job with updated parameters (copies `*_original.*` from output folder to uploads)
 - `POST /cancel/{job_id}` — cancel a pending or processing job
+- `GET /api/settings` — get current settings (outputs_dir)
+- `POST /api/settings` — update settings (outputs_dir); requires app restart to take effect
 - `POST /api/heartbeat` — browser presence ping (packaged app only)
 - `GET /api/health` — health check
 
-Jobs are processed by a background queue worker thread (one at a time). Job state is persisted in `app/jobs.db` (SQLite, WAL mode).
+Jobs are processed by a background queue worker thread (one at a time). Job state is persisted in `{outputs_dir}/jobs.db` (SQLite, WAL mode).
 
 In packaged mode (`sys.frozen=True`), a heartbeat watchdog shuts down the process if no browser ping is received for 20s (with a 60s startup grace period).
 
@@ -80,13 +83,17 @@ Partial worms (touching frame edges) are tracked but excluded from final output;
 
 ### Frontend (`/frontend/src`)
 
-**`App.jsx`** — Main app. File upload, parameter form, before/after comparison slider, play/pause controls, download links, head/tail correction toggle.
+**`App.jsx`** — Main app. File upload, parameter form, before/after comparison slider, play/pause controls, download links, head/tail correction toggle, re-run with new parameters, job history integration.
 
-**`JobHistory.jsx`** — Polls `GET /jobs`, shows live progress for running jobs, lets user load completed jobs or delete them.
+**`JobHistory.jsx`** — Polls `GET /jobs`, shows live progress for running/pending jobs, highlights the currently-viewed job, lets user load completed jobs or delete them (delete resets the view if the current job is deleted).
 
 **`HeadTailCorrector.jsx`** — Fetches keypoint data, draws head/tail overlay on a canvas over the video, lets user flip individual worms.
 
 **`MotionCharts.jsx`** — Recharts heatmap + timeline chart for per-worm motion stats (overall, head, tail).
+
+**`Settings.jsx`** — Settings panel (⚙ button in header). Lets user change the outputs directory; shows current path and warns that a restart is required.
+
+**`ErrorBoundary.jsx`** — React error boundary that catches render errors and shows a fallback UI instead of a blank screen.
 
 **`api.js`** — Exports `API` base URL: `""` (same-origin) when `VITE_API_URL` is empty (packaged build), `"http://127.0.0.1:8000"` in dev.
 

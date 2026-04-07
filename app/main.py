@@ -15,6 +15,8 @@ import zipfile
 import json
 import threading
 import sqlite3
+import os
+import re
 import time
 
 logger = logging.getLogger(__name__)
@@ -60,8 +62,17 @@ APP_DIR = Path(__file__).resolve().parent
 _config = load_config()
 OUTPUTS = Path(_config["outputs_dir"])
 UPLOADS = get_config_dir() / "uploads"   # temp files, not user data
-OUTPUTS.mkdir(exist_ok=True, parents=True)
-UPLOADS.mkdir(exist_ok=True, parents=True)
+try:
+    OUTPUTS.mkdir(exist_ok=True, parents=True)
+except Exception as _exc:
+    logger.warning("Could not create outputs directory %s: %s", OUTPUTS, _exc)
+try:
+    UPLOADS.mkdir(exist_ok=True, parents=True)
+except Exception as _exc:
+    logger.warning("Could not create uploads directory %s: %s", UPLOADS, _exc)
+
+# Set to True when the user saves new settings; blocks new uploads until restart.
+_restart_pending = False
 
 # ---------------------------------------------------------------------------
 # FFmpeg — prefer bundled static binary (imageio_ffmpeg), fall back to PATH
@@ -72,12 +83,18 @@ def _resolve_ffmpeg() -> str:
     try:
         import imageio_ffmpeg
         exe = imageio_ffmpeg.get_ffmpeg_exe()
-        logger.info("Using bundled ffmpeg: %s", exe)
-        return exe
+        if Path(exe).is_file() and os.access(exe, os.X_OK):
+            logger.info("Using bundled ffmpeg: %s", exe)
+            return exe
+        logger.warning("imageio_ffmpeg returned non-executable path: %s — trying system PATH", exe)
     except Exception:
         pass
-    logger.warning("imageio_ffmpeg not available — falling back to system ffmpeg on PATH")
-    return "ffmpeg"   # fall back to system PATH
+    system_ffmpeg = shutil.which("ffmpeg")
+    if system_ffmpeg:
+        logger.info("Using system ffmpeg from PATH: %s", system_ffmpeg)
+        return system_ffmpeg
+    logger.warning("No ffmpeg executable found — transcoding will fail")
+    return "ffmpeg"
 
 FFMPEG_BIN = _resolve_ffmpeg()
 
@@ -252,15 +269,16 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
     try:
         if saved_path.exists():
             shutil.copy2(saved_path, original_in_output)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Could not copy original video to output folder: %s", exc)
         original_in_output = None
 
     # Delete upload file
     try:
         if saved_path.exists():
             saved_path.unlink()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("Could not delete upload file %s: %s", saved_path, exc)
 
     # Build main ZIP (atomic: write to .tmp then rename)
     package_zip = src_mp4.parent / f"{output_subfolder}.zip"
@@ -355,16 +373,17 @@ def process_job(job_id: str):
     base_name = job["output_name"] or "tracking01"
     error_holder = [None]
 
-    _last_progress_write = [0.0]
+    _last_progress_write = 0.0
 
     def progress_callback(stage, current, total):
+        nonlocal _last_progress_write
         if cancel_event.is_set():
             return
         now = time.monotonic()
         # Write at most once per second to avoid hammering the DB at high frame rates
-        if now - _last_progress_write[0] < 1.0 and current < total:
+        if now - _last_progress_write < 1.0 and current < total:
             return
-        _last_progress_write[0] = now
+        _last_progress_write = now
         pct = int(current / total * 100) if total > 0 else 0
         with get_db() as conn:
             conn.execute(
@@ -407,6 +426,7 @@ def process_job(job_id: str):
 
     # Error from tracker
     if error_holder[0]:
+        logger.error("Job %s failed during tracking: %s", job_id, error_holder[0], exc_info=error_holder[0])
         try:
             if saved_path.exists():
                 saved_path.unlink()
@@ -423,6 +443,7 @@ def process_job(job_id: str):
     try:
         _do_post_processing(job_id, job_dir, original_filename, saved_path)
     except Exception as e:
+        logger.error("Job %s failed during post-processing: %s", job_id, e, exc_info=True)
         try:
             if saved_path.exists():
                 saved_path.unlink()
@@ -437,6 +458,7 @@ def process_job(job_id: str):
 
 def queue_worker():
     """Daemon thread: picks up pending jobs one at a time."""
+    backoff = 2
     while True:
         try:
             with get_db() as conn:
@@ -444,19 +466,27 @@ def queue_worker():
                     "SELECT job_id FROM jobs WHERE status='pending' ORDER BY created_at LIMIT 1"
                 ).fetchone()
             if row:
+                backoff = 2  # reset on successful DB access
                 process_job(row["job_id"])
             else:
                 time.sleep(2)
         except Exception as exc:
             logger.error("Queue worker error: %s", exc, exc_info=True)
-            time.sleep(2)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60)
 
 
-init_db()
-migrate_existing_outputs()
-
-_worker = threading.Thread(target=queue_worker, daemon=True)
-_worker.start()
+try:
+    init_db()
+    migrate_existing_outputs()
+except Exception as _db_exc:
+    logger.critical(
+        "Failed to initialize database at %s: %s — queue worker will not start",
+        DB_PATH, _db_exc,
+    )
+else:
+    _worker = threading.Thread(target=queue_worker, daemon=True)
+    _worker.start()
 
 # ---------------------------------------------------------------------------
 # Browser-presence watchdog (packaged app only)
@@ -475,8 +505,23 @@ def _heartbeat_watchdog() -> None:
     while True:
         time.sleep(5)
         if time.monotonic() - _last_heartbeat > _HEARTBEAT_TIMEOUT:
+            # Defer shutdown while a job is actively processing (in-memory check).
+            with active_jobs_lock:
+                if active_jobs:
+                    continue
+            # Also query DB in case active_jobs is empty but a job is still
+            # marked processing (e.g. after an edge-case restart).
+            try:
+                with get_db() as conn:
+                    processing = conn.execute(
+                        "SELECT 1 FROM jobs WHERE status='processing' LIMIT 1"
+                    ).fetchone()
+                if processing:
+                    continue
+            except Exception:
+                pass  # if DB is unreachable, proceed with shutdown
             logger.info("No browser heartbeat for %ds — shutting down.", _HEARTBEAT_TIMEOUT)
-            import os, signal
+            import signal
             os.kill(os.getpid(), signal.SIGTERM)
             return
 
@@ -502,6 +547,7 @@ def get_settings():
     return {
         "outputs_dir": cfg["outputs_dir"],
         "config_dir": str(get_config_dir()),
+        "restart_pending": _restart_pending,
     }
 
 
@@ -511,10 +557,20 @@ class _SettingsIn(pydantic.BaseModel):
 
 @app.post("/api/settings")
 def update_settings(body: _SettingsIn):
+    global _restart_pending
     new_path = Path(body.outputs_dir).expanduser().resolve()
+    # Validate that the path is writable before saving
+    try:
+        new_path.mkdir(parents=True, exist_ok=True)
+        _test = new_path / ".write_test"
+        _test.touch()
+        _test.unlink()
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Outputs folder is not writable: {exc}")
     cfg = load_config()
     cfg["outputs_dir"] = str(new_path)
     save_config(cfg)
+    _restart_pending = True
     return {"ok": True, "outputs_dir": str(new_path), "restart_required": True}
 
 
@@ -527,6 +583,8 @@ def heartbeat():
 
 @app.get("/jobs")
 def list_jobs(limit: int = 100, offset: int = 0):
+    limit = min(max(1, limit), 1000)  # cap: never return more than 1000 rows
+    offset = max(0, offset)
     with get_db() as conn:
         rows = conn.execute(
             "SELECT * FROM jobs ORDER BY created_at DESC LIMIT ? OFFSET ?",
@@ -583,8 +641,22 @@ async def upload_video(
     max_age: int = Form(35),
     persistence: int = Form(50),
 ):
+    if _restart_pending:
+        raise HTTPException(
+            status_code=503,
+            detail="Settings changed — restart the app to apply before submitting new jobs",
+        )
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
+    # Validate tracking parameter ranges to prevent extreme values
+    if not (1 <= keypoints_per_worm <= 200):
+        raise HTTPException(status_code=400, detail="keypoints_per_worm must be 1–200")
+    if not (0 <= area_threshold <= 100_000):
+        raise HTTPException(status_code=400, detail="area_threshold must be 0–100000")
+    if not (0 <= max_age <= 10_000):
+        raise HTTPException(status_code=400, detail="max_age must be 0–10000")
+    if not (0 <= persistence <= 10_000):
+        raise HTTPException(status_code=400, detail="persistence must be 0–10000")
     # Reject filenames that contain path separators (e.g. "../secret")
     safe_name = Path(file.filename).name
     if not safe_name or safe_name != file.filename:
@@ -617,8 +689,15 @@ async def upload_video(
     return {"job_id": job_id}
 
 
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+)
+
+
 @app.get("/download/{job_id}/{filename}")
 def download_file(job_id: str, filename: str):
+    if not _UUID_RE.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job ID")
     safe_filename = Path(filename).name
     if not safe_filename or safe_filename != filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
@@ -676,9 +755,14 @@ def regenerate_tracked_video(subdir: Path):
     raw_mp4 = subdir / f"{subfolder}_raw.mp4"
     out = cv2.VideoWriter(str(raw_mp4), cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height))
 
+    _REGEN_TIMEOUT = 3600  # 1 hour max for video regeneration
+    _regen_start = time.monotonic()
+
     try:
         frame_idx = 0
         while frame_idx < num_frames:
+            if time.monotonic() - _regen_start > _REGEN_TIMEOUT:
+                raise RuntimeError(f"Video regeneration timed out after {_REGEN_TIMEOUT}s")
             ret, frame = cap.read()
             if not ret:
                 break
@@ -702,6 +786,10 @@ def regenerate_tracked_video(subdir: Path):
     finally:
         cap.release()
         out.release()
+
+    # Validate VideoWriter produced a non-empty file before transcoding
+    if not raw_mp4.exists() or raw_mp4.stat().st_size == 0:
+        raise RuntimeError("VideoWriter produced an empty or missing output file")
 
     # Transcode to H.264, replacing existing file
     h264_mp4 = subdir / f"{subfolder}_tracked.mp4"
@@ -790,20 +878,34 @@ def get_keypoints(job_id: str):
     }
 
 
-def _regen_and_rebuild(subdir: Path, job_id: str):
-    """Background task: regenerate tracked video and rebuild ZIPs, then clear regen_pending."""
+def _regen_and_rebuild(subdir: Path, job_id: str, motion_stats: dict | None = None):
+    """Background task: regenerate CSVs + tracked video + ZIPs, then clear regen_pending."""
     regen_ok = True
-    try:
-        regenerate_tracked_video(subdir)
-    except Exception as exc:
-        logger.error("Video regeneration failed for %s: %s", subdir, exc)
-        regen_ok = False
+
+    # Regenerate CSVs atomically (delete old, write new) before touching the video.
+    if motion_stats:
+        try:
+            for csv_file in subdir.glob("*.csv"):
+                csv_file.unlink()
+            export_csv_files(motion_stats, str(subdir), subdir.name)
+        except Exception as exc:
+            logger.error("CSV regeneration failed for %s: %s", subdir, exc)
+            regen_ok = False
+
+    if regen_ok:
+        try:
+            regenerate_tracked_video(subdir)
+        except Exception as exc:
+            logger.error("Video regeneration failed for %s: %s", subdir, exc)
+            regen_ok = False
+
     if regen_ok:
         try:
             _rebuild_zips(subdir)
         except Exception as exc:
             logger.error("ZIP rebuild failed for %s: %s", subdir, exc)
             regen_ok = False
+
     try:
         with get_db() as conn:
             if regen_ok:
@@ -811,7 +913,7 @@ def _regen_and_rebuild(subdir: Path, job_id: str):
             else:
                 conn.execute(
                     "UPDATE jobs SET regen_pending=0, error_msg=? WHERE job_id=?",
-                    ("Video regeneration failed — see server logs for details", job_id),
+                    ("Regeneration failed — see server logs for details", job_id),
                 )
     except Exception as exc:
         logger.error("Failed to update regen status for %s: %s", job_id, exc)
@@ -822,10 +924,14 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
     """Flip head/tail for a worm (reverse keypoint axis 0) and recompute stats."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT output_subfolder FROM jobs WHERE job_id=?", (job_id,)
+            "SELECT output_subfolder, regen_pending FROM jobs WHERE job_id=?", (job_id,)
         ).fetchone()
     if not row or not row["output_subfolder"]:
         raise HTTPException(status_code=404, detail="Job not found or not completed")
+    if row["regen_pending"]:
+        raise HTTPException(
+            status_code=409, detail="Regeneration in progress — try again after it completes"
+        )
 
     subdir = OUTPUTS / job_id / row["output_subfolder"]
     npz_files = list(subdir.glob("*_keypoints.npz"))
@@ -872,18 +978,89 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
         with open(json_files[0], "w") as f:
             json.dump(motion_stats, f, indent=2)
 
-    # Regenerate CSVs
-    for csv_file in subdir.glob("*.csv"):
-        csv_file.unlink()
-    if motion_stats:
-        export_csv_files(motion_stats, str(subdir), row["output_subfolder"])
-
-    # Mark job as regenerating, then schedule video + ZIP rebuild after response is sent
+    # Mark job as regenerating, then schedule CSV + video + ZIP rebuild after response is sent.
+    # All file operations happen atomically in the background task.
     with get_db() as conn:
         conn.execute("UPDATE jobs SET regen_pending=1 WHERE job_id=?", (job_id,))
-    background_tasks.add_task(_regen_and_rebuild, subdir, job_id)
+    background_tasks.add_task(_regen_and_rebuild, subdir, job_id, motion_stats)
 
     return {"ok": True, "motion_stats": motion_stats}
+
+
+class _RerunIn(pydantic.BaseModel):
+    keypoints_per_worm: int = 15
+    area_threshold: int = 50
+    max_age: int = 35
+    persistence: int = 50
+
+
+@app.post("/jobs/{job_id}/rerun")
+def rerun_job(job_id: str, body: _RerunIn):
+    """Queue a new job using the original video from an existing completed job."""
+    if _restart_pending:
+        raise HTTPException(
+            status_code=503,
+            detail="Settings changed — restart the app to apply before submitting new jobs",
+        )
+    # Validate parameters
+    if not (1 <= body.keypoints_per_worm <= 200):
+        raise HTTPException(status_code=400, detail="keypoints_per_worm must be 1–200")
+    if not (0 <= body.area_threshold <= 100_000):
+        raise HTTPException(status_code=400, detail="area_threshold must be 0–100000")
+    if not (0 <= body.max_age <= 10_000):
+        raise HTTPException(status_code=400, detail="max_age must be 0–10000")
+    if not (0 <= body.persistence <= 10_000):
+        raise HTTPException(status_code=400, detail="persistence must be 0–10000")
+
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT original_filename, output_subfolder FROM jobs WHERE job_id=?", (job_id,)
+        ).fetchone()
+    if not row or not row["output_subfolder"]:
+        raise HTTPException(status_code=404, detail="Job not found or not completed")
+
+    subdir = OUTPUTS / job_id / row["output_subfolder"]
+    original_files = list(subdir.glob("*_original.*"))
+    if not original_files:
+        raise HTTPException(status_code=404, detail="Original video not found in output folder")
+
+    original_path = original_files[0]
+    if row["original_filename"]:
+        original_filename = row["original_filename"]
+    else:
+        # Migrated job — original_filename was never stored. Recover it by stripping
+        # the timestamp prefix and "_original" suffix added when the file was stored.
+        # Stored format: {YYYYMMDD_HHMMSS_ffffff}_{original_stem}_original{ext}
+        stem = original_path.stem   # e.g. "20260406_161355_671420_foo_original"
+        ext  = original_path.suffix
+        stem = re.sub(r'^\d{8}_\d{6}_\d+_', '', stem)  # strip timestamp
+        if stem.endswith('_original'):
+            stem = stem[:-len('_original')]
+        original_filename = (stem or original_path.stem) + ext
+
+    new_job_id = str(uuid4())
+    saved_path = UPLOADS / f"{new_job_id}__{original_filename}"
+    try:
+        shutil.copy2(original_path, saved_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Could not copy original video: {exc}")
+
+    params_json = json.dumps({
+        "keypoints_per_worm": body.keypoints_per_worm,
+        "area_threshold": body.area_threshold,
+        "max_age": body.max_age,
+        "persistence": body.persistence,
+    })
+
+    with get_db() as conn:
+        conn.execute(
+            """INSERT INTO jobs
+               (job_id, status, created_at, original_filename, output_name, params_json)
+               VALUES (?, 'pending', ?, ?, ?, ?)""",
+            (new_job_id, _now_iso(), original_filename, Path(original_filename).stem, params_json),
+        )
+
+    return {"job_id": new_job_id}
 
 
 @app.post("/cancel/{job_id}")

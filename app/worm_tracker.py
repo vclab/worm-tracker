@@ -402,6 +402,14 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         return None
 
     input_fps = cap.get(cv2.CAP_PROP_FPS) or 30
+    _vid_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    _vid_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if _vid_w < 10 or _vid_h < 10 or _vid_w > 10_000 or _vid_h > 10_000:
+        cap.release()
+        shutil.rmtree(frames_dir, ignore_errors=True)
+        raise ValueError(
+            f"Unsupported video dimensions: {_vid_w}x{_vid_h} (must be 10–10000 px per side)"
+        )
 
     frame_idx = 0
     track_memory = []

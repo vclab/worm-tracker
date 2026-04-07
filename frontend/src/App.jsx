@@ -3,6 +3,7 @@ import MotionCharts from "./MotionCharts";
 import JobHistory from "./JobHistory";
 import HeadTailCorrector from "./HeadTailCorrector";
 import Settings from "./Settings";
+import ErrorBoundary from "./ErrorBoundary";
 import { API } from "./api";
 
 function App() {
@@ -21,6 +22,10 @@ function App() {
   const [showHtCorrector, setShowHtCorrector] = useState(false);
   const [regenPending, setRegenPending] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
+  const [motionStatsLoading, setMotionStatsLoading] = useState(false);
+  const [restartPending, setRestartPending] = useState(false);
+  const [rerunMode, setRerunMode] = useState(false);
 
   // Head/tail overlay canvas (drawn over the comparison slider)
   const htCanvasRef = useRef(null);
@@ -33,11 +38,13 @@ function App() {
   const originalVideoRef = useRef(null);
   const trackedVideoRef = useRef(null);
 
-  // Parameters
+  // Parameters (editable for next job; read-only when viewing a result)
   const [keypoints, setKeypoints] = useState(15);
   const [area, setArea] = useState(50);
   const [maxAge, setMaxAge] = useState(35);
   const [persistence, setPersistence] = useState(50);
+  // Parameters actually used for the currently viewed job (null when not viewing)
+  const [usedParams, setUsedParams] = useState(null);
 
   // Ref to clear the file input on reset
   const fileInputRef = useRef(null);
@@ -58,6 +65,14 @@ function App() {
     send(); // immediate ping on load
     const id = setInterval(send, 5000);
     return () => clearInterval(id);
+  }, []);
+
+  // Check if a settings restart is pending (blocks new uploads until restart).
+  useEffect(() => {
+    fetch(`${API}/api/settings`)
+      .then((r) => r.json())
+      .then((data) => { if (data.restart_pending) setRestartPending(true); })
+      .catch(() => {});
   }, []);
 
   // Sync video playback between original and tracked
@@ -141,6 +156,7 @@ function App() {
   const handleSubmit = async () => {
     const files = fileInputRef.current?.files;
     if (!files || files.length === 0) return;
+    setSubmitError(null);
 
     for (const file of files) {
       const formData = new FormData();
@@ -150,9 +166,20 @@ function App() {
       formData.append("max_age", maxAge);
       formData.append("persistence", persistence);
       try {
-        await fetch(`${API}/upload`, { method: "POST", body: formData });
+        const res = await fetch(`${API}/upload`, { method: "POST", body: formData });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          if (res.status === 503) {
+            setRestartPending(true);
+            setSubmitError(data.detail || "Restart the app to apply settings changes before submitting jobs.");
+            return;
+          }
+          setSubmitError(`Failed to queue ${file.name}: ${data.detail || res.statusText}`);
+          return;
+        }
       } catch (err) {
-        alert(`Failed to queue ${file.name}: ${err.message}`);
+        setSubmitError(`Failed to queue ${file.name}: ${err.message}`);
+        return;
       }
     }
 
@@ -171,30 +198,87 @@ function App() {
     setOutputFolderName(job.output_subfolder || "");
     setCurrentJobId(job.job_id || null);
     setMotionStats(null);
+    setMotionStatsLoading(false);
     setSliderPos(50);
     setIsPlaying(false);
     setShowHtCorrector(false);
     setRegenPending(job.regen_pending ? true : false);
+    // Parse and store the parameters used for this job
+    try {
+      const p = job.params_json ? JSON.parse(job.params_json) : null;
+      setUsedParams(p);
+      // Pre-fill editable inputs so "Run on another file" starts from these values
+      if (p) {
+        if (p.keypoints_per_worm != null) setKeypoints(p.keypoints_per_worm);
+        if (p.area_threshold     != null) setArea(p.area_threshold);
+        if (p.max_age            != null) setMaxAge(p.max_age);
+        if (p.persistence        != null) setPersistence(p.persistence);
+      }
+    } catch {
+      setUsedParams(null);
+    }
+    // Reset seek bar immediately (also reset via useEffect on processedUrl change)
+    if (seekBarRef.current) seekBarRef.current.value = 0;
     const thisJobId = job.job_id;
     loadingJobRef.current = thisJobId;
     if (motionStatsAbortRef.current) motionStatsAbortRef.current.abort();
     if (job.motion_stats_path) {
+      setMotionStatsLoading(true);
       const ctrl = new AbortController();
       motionStatsAbortRef.current = ctrl;
       fetch(`${API}${job.motion_stats_path}`, { signal: ctrl.signal })
         .then((r) => r.json())
         .then((stats) => {
-          if (loadingJobRef.current === thisJobId) setMotionStats(stats);
+          if (loadingJobRef.current === thisJobId) {
+            setMotionStats(stats);
+            setMotionStatsLoading(false);
+          }
         })
         .catch((err) => {
-          if (err.name !== "AbortError") console.error("Failed to load motion stats:", err);
+          if (err.name !== "AbortError") {
+            console.error("Failed to load motion stats:", err);
+            if (loadingJobRef.current === thisJobId) setMotionStatsLoading(false);
+          }
         });
     }
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Reset results view (keeps parameter values)
+  const handleRerun = async () => {
+    if (!currentJobId) return;
+    setSubmitError(null);
+    try {
+      const res = await fetch(`${API}/jobs/${currentJobId}/rerun`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          keypoints_per_worm: keypoints,
+          area_threshold: area,
+          max_age: maxAge,
+          persistence: persistence,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 503) {
+          setRestartPending(true);
+          setSubmitError(data.detail || "Restart the app before submitting jobs.");
+        } else {
+          setSubmitError(data.detail || "Failed to start re-run");
+        }
+        return;
+      }
+      setRerunMode(false);
+      setHistoryKey((k) => k + 1);
+    } catch (err) {
+      setSubmitError(`Re-run failed: ${err.message}`);
+    }
+  };
+
+  // Reset results view — params stay pre-filled with last-used values, now editable
   const resetForAnother = () => {
+    setRerunMode(false);
+    setUsedParams(null);
     setOriginalUrl(null);
     setProcessedUrl(null);
     setPackageUrl(null);
@@ -242,49 +326,114 @@ function App() {
         {/* Settings panel */}
         {showSettings && <Settings onClose={() => setShowSettings(false)} />}
 
-        {/* Parameters */}
-        <section className="form">
-          <div className="field">
-            <label className="label">Keypoints per worm</label>
-            <input
-              className="input"
-              type="number"
-              value={keypoints}
-              onChange={(e) => setKeypoints(Number(e.target.value))}
-              min={1}
-            />
+        {/* Restart-required banner */}
+        {restartPending && (
+          <div style={{
+            background: "#1c1108", border: "1px solid #d97706", borderRadius: 8,
+            padding: "10px 14px", marginBottom: "1rem",
+            fontSize: "0.82rem", color: "#fbbf24", display: "flex", gap: 8, alignItems: "center",
+          }}>
+            <span>⚠</span>
+            <span>Settings changed — restart the app before submitting new jobs.</span>
           </div>
-          <div className="field">
-            <label className="label">Area threshold</label>
-            <input
-              className="input"
-              type="number"
-              value={area}
-              onChange={(e) => setArea(Number(e.target.value))}
-              min={0}
-            />
+        )}
+
+        {/* Parameters — read-only summary while viewing a result, editable otherwise */}
+        {usedParams && !rerunMode ? (
+          <div className="used-params">
+            <span className="used-params-label">Analysis parameters</span>
+            <div className="used-params-values">
+              <span><span className="used-params-key">Keypoints</span>{usedParams.keypoints_per_worm ?? "—"}</span>
+              <span><span className="used-params-key">Area threshold</span>{usedParams.area_threshold ?? "—"}</span>
+              <span><span className="used-params-key">Max age</span>{usedParams.max_age ?? "—"}</span>
+              <span><span className="used-params-key">Persistence</span>{usedParams.persistence ?? "—"}</span>
+            </div>
           </div>
-          <div className="field">
-            <label className="label">Max age</label>
-            <input
-              className="input"
-              type="number"
-              value={maxAge}
-              onChange={(e) => setMaxAge(Number(e.target.value))}
-              min={0}
-            />
+        ) : (
+          <section className="form">
+            <div className="field">
+              <label className="label">Keypoints per worm</label>
+              <input
+                className="input"
+                type="number"
+                value={keypoints}
+                onChange={(e) => setKeypoints(Number(e.target.value))}
+                min={1}
+                max={200}
+              />
+            </div>
+            <div className="field">
+              <label className="label">Area threshold</label>
+              <input
+                className="input"
+                type="number"
+                value={area}
+                onChange={(e) => setArea(Number(e.target.value))}
+                min={0}
+                max={100000}
+              />
+            </div>
+            <div className="field">
+              <label className="label">Max age</label>
+              <input
+                className="input"
+                type="number"
+                value={maxAge}
+                onChange={(e) => setMaxAge(Number(e.target.value))}
+                min={0}
+                max={10000}
+              />
+            </div>
+            <div className="field">
+              <label className="label">Persistence</label>
+              <input
+                className="input"
+                type="number"
+                value={persistence}
+                onChange={(e) => setPersistence(Number(e.target.value))}
+                min={1}
+                max={10000}
+              />
+            </div>
+          </section>
+        )}
+
+        {/* Re-run mode: banner + submit/cancel */}
+        {rerunMode && (
+          <div style={{ marginBottom: "0.75rem" }}>
+            <div style={{
+              background: "#0f1729", border: "1px solid #4f46e5", borderRadius: 8,
+              padding: "10px 14px", marginBottom: "0.75rem",
+              fontSize: "0.82rem", color: "#a5b4fc", display: "flex", gap: 8, alignItems: "center",
+            }}>
+              <span>↺</span>
+              <span>Re-running <strong>{fileName}</strong> — adjust parameters above, then submit.</span>
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button
+                className="btn"
+                onClick={handleRerun}
+                disabled={restartPending}
+                style={restartPending ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+              >
+                Submit Re-run
+              </button>
+              <button
+                className="btn"
+                onClick={() => setRerunMode(false)}
+                style={{ background: "none", border: "1px solid #374151", color: "#9ca3af" }}
+              >
+                Cancel
+              </button>
+              {submitError && (
+                <div style={{ color: "#ef4444", fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>{submitError}</span>
+                  <button onClick={() => setSubmitError(null)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", padding: 0, fontSize: "0.85rem" }}>✕</button>
+                </div>
+              )}
+            </div>
           </div>
-          <div className="field">
-            <label className="label">Persistence</label>
-            <input
-              className="input"
-              type="number"
-              value={persistence}
-              onChange={(e) => setPersistence(Number(e.target.value))}
-              min={1}
-            />
-          </div>
-        </section>
+        )}
 
         {/* File input */}
         {!processedUrl && (
@@ -311,9 +460,20 @@ function App() {
               </span>
             </div>
             <div style={{ marginTop: "0.75rem" }}>
-              <button className="btn" onClick={handleSubmit}>
+              <button
+                className="btn"
+                onClick={handleSubmit}
+                disabled={restartPending}
+                style={restartPending ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+              >
                 Add to queue
               </button>
+              {submitError && (
+                <div style={{ marginTop: 8, color: "#ef4444", fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>{submitError}</span>
+                  <button onClick={() => setSubmitError(null)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", padding: 0, fontSize: "0.85rem" }}>✕</button>
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -477,21 +637,30 @@ function App() {
                     {showHtCorrector ? "Hide H/T Correction" : "Head/Tail Correction"}
                   </button>
                 )}
-                <button className="btn" onClick={resetForAnother}>
-                  Run on another file
-                </button>
+                {!rerunMode && currentJobId && (
+                  <button className="btn" onClick={() => setRerunMode(true)}>
+                    Re-run with new parameters
+                  </button>
+                )}
+                {!rerunMode && (
+                  <button className="btn" onClick={resetForAnother}>
+                    Run on another file
+                  </button>
+                )}
               </div>
             </div>
             {/* Head/Tail Correction */}
             {showHtCorrector && currentJobId && originalUrl && (
-              <HeadTailCorrector
-                jobId={currentJobId}
-                originalVideoRef={originalVideoRef}
-                overlayCanvasRef={htCanvasRef}
-                onMotionStatsUpdated={setMotionStats}
-                onFlipStarted={() => setRegenPending(true)}
-                regenPending={regenPending}
-              />
+              <ErrorBoundary>
+                <HeadTailCorrector
+                  jobId={currentJobId}
+                  originalVideoRef={originalVideoRef}
+                  overlayCanvasRef={htCanvasRef}
+                  onMotionStatsUpdated={setMotionStats}
+                  onFlipStarted={() => setRegenPending(true)}
+                  regenPending={regenPending}
+                />
+              </ErrorBoundary>
             )}
 
             <div className="meta">
@@ -500,11 +669,20 @@ function App() {
             </div>
 
             {/* Motion Analysis Charts */}
-            {motionStats && <MotionCharts data={motionStats} />}
+            {motionStatsLoading && (
+              <div style={{ color: "#6b7280", fontSize: "0.82rem", marginTop: "0.5rem" }}>
+                Loading motion analysis…
+              </div>
+            )}
+            {motionStats && (
+              <ErrorBoundary>
+                <MotionCharts data={motionStats} />
+              </ErrorBoundary>
+            )}
           </>
         )}
 
-        <JobHistory refreshKey={historyKey} onLoad={loadFromHistory} />
+        <JobHistory refreshKey={historyKey} onLoad={loadFromHistory} currentJobId={currentJobId} onDeleteCurrent={resetForAnother} />
 
         {/* Footer */}
         <footer className="footer">

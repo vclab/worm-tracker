@@ -6,14 +6,15 @@ __pycache__/
 .venv/
 venv/
 env/
+sample-data/
+
+# --- User config and outputs live outside the repo (these legacy paths are kept ignored for safety) ---
+# Outputs default : ~/Documents/WormTracker/
+# Config          : ~/Library/Application Support/WormTracker/config.json
+# Uploads         : ~/Library/Application Support/WormTracker/uploads/
 app/uploads/
 app/outputs/
 app/jobs.db
-sample-data/
-
-# --- User config and outputs now live outside the repo ---
-# Outputs default : ~/Documents/WormTracker/
-# Config          : ~/Library/Application Support/WormTracker/config.json
 
 # --- Node / React ---
 frontend/node_modules/

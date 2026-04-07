@@ -3,6 +3,7 @@ import { API } from "./api";
 
 function Settings({ onClose }) {
   const [outputsDir, setOutputsDir] = useState("");
+  const [configDir, setConfigDir] = useState("");
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -15,6 +16,7 @@ function Settings({ onClose }) {
       .then((data) => {
         setOutputsDir(data.outputs_dir);
         setDraft(data.outputs_dir);
+        setConfigDir(data.config_dir || "");
         setLoading(false);
       })
       .catch(() => {
@@ -51,7 +53,13 @@ function Settings({ onClose }) {
     <div className="settings-panel">
       <div className="settings-header">
         <span className="settings-title">Settings</span>
-        <button className="settings-close" onClick={onClose}>✕</button>
+        <button
+          className="settings-close"
+          onClick={onClose}
+          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onClose()}
+          tabIndex={0}
+          aria-label="Close settings"
+        >✕</button>
       </div>
 
       {loading ? (
@@ -88,6 +96,15 @@ function Settings({ onClose }) {
           {saved && (
             <div className="settings-note">
               Restart the app for changes to take effect.
+            </div>
+          )}
+
+          {configDir && (
+            <div className="settings-row" style={{ marginTop: "0.75rem" }}>
+              <div className="settings-label">Config folder</div>
+              <div className="settings-value-row">
+                <span className="settings-value">{configDir}</span>
+              </div>
             </div>
           )}
 

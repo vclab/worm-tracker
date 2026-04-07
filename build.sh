@@ -14,6 +14,7 @@ pip install pyinstaller imageio-ffmpeg -q
 
 echo "==> Building React frontend (production, relative URLs)"
 cd frontend
+npm install
 VITE_API_URL="" npm run build
 cd "$PROJECT_DIR"
 

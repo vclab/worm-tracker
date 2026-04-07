@@ -16,6 +16,7 @@ export default function HeadTailCorrector({
   const [selectedWorm, setSelectedWorm] = useState(null);
   const [flipping, setFlipping] = useState(false);
   const [flipError, setFlipError] = useState(null);
+  const [fetchError, setFetchError] = useState(null);
   const rafRef = useRef(null);
 
   function fetchKeypoints() {
@@ -32,11 +33,15 @@ export default function HeadTailCorrector({
 
   useEffect(() => {
     if (!jobId) return;
+    setFetchError(null);
     fetchKeypoints()
       .then((data) => {
         if (data.worm_ids?.length > 0) setSelectedWorm(data.worm_ids[0]);
       })
-      .catch((err) => console.error("Failed to load keypoints:", err));
+      .catch((err) => {
+        console.error("Failed to load keypoints:", err);
+        setFetchError("Failed to load keypoint data — try reloading the job.");
+      });
   }, [jobId]);
 
   // Draw H/T dots on the overlay canvas using object-fit:contain scaling
@@ -67,6 +72,12 @@ export default function HeadTailCorrector({
 
     let ctx = null;
     const canvasEl = overlayCanvasRef?.current;
+
+    // Initialize canvas dimensions immediately so the first frame draws at the right size.
+    if (canvasEl && canvasEl.offsetWidth > 0 && canvasEl.offsetHeight > 0) {
+      canvasEl.width = canvasEl.offsetWidth;
+      canvasEl.height = canvasEl.offsetHeight;
+    }
 
     function draw() {
       if (!running) return;
@@ -146,11 +157,16 @@ export default function HeadTailCorrector({
     }
   }
 
-  if (!jobId || wormIds.length === 0) return null;
+  if (!jobId || (wormIds.length === 0 && !fetchError)) return null;
 
   return (
     <div style={panelStyle}>
       <h3 style={titleStyle}>Head / Tail Correction</h3>
+      {fetchError && (
+        <div style={{ fontSize: "0.8rem", color: "#ef4444", marginBottom: 8 }}>
+          {fetchError}
+        </div>
+      )}
       <p style={subtitleStyle}>
         Select a worm to preview its head (H, green) and tail (T, red) on the video above. Click Flip to swap.
       </p>
