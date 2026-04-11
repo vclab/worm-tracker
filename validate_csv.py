@@ -66,14 +66,32 @@ def read_summary_csv(path):
 
 
 def read_aggregate_block(path):
-    """Read the aggregate stats block from summary CSV."""
+    """Read the aggregate stats block from summary CSV.
+
+    Supports both the legacy '# Aggregate' comment-block format and the
+    current row_type='aggregate_<metric>' format.
+    """
     agg = {}
     in_block = False
     with open(path, newline="") as f:
         reader = csv.reader(f)
+        header = None
         for row in reader:
             if not row:
                 continue
+            # Current format: row_type column with aggregate_mean etc.
+            if header is None and row[0] == "row_type":
+                header = row
+                continue
+            if header is not None and row[0].startswith("aggregate_"):
+                metric = row[0][len("aggregate_"):]  # e.g. "mean"
+                agg[metric] = {
+                    "overall": float(row[2]),
+                    "head":    float(row[3]),
+                    "tail":    float(row[5]),
+                }
+                continue
+            # Legacy format: # Aggregate comment block
             if row[0].startswith("# Aggregate"):
                 in_block = True
                 continue

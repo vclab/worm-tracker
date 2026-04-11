@@ -10,8 +10,41 @@ import {
   Legend,
 } from "recharts";
 
+const TOOLTIPS = {
+  overall:
+    "Average displacement per keypoint per frame (px/frame). For each frame transition, the distance traveled by all skeleton points is summed, then divided by (num_keypoints × num_transitions). Higher = more active worm.",
+  head: "Average displacement of the head keypoint (wider end) per frame transition (px/frame). Mean of all frame-to-frame distances for the head point only.",
+  mid: "Average displacement of the 3 middle keypoints per frame transition (px/frame). Averages across 3 adjacent skeleton points around the center to reduce noise from body deformation.",
+  tail: "Average displacement of the tail keypoint (narrower end) per frame transition (px/frame). Same calculation as head but for the opposite end.",
+  mean: "Average and standard deviation across all tracked worms. Shows how similar or different the worms' activity levels are — not an average across frames.",
+  motionOverTime:
+    "Frame-by-frame displacement of head, mid-body, and tail keypoints. Each point is the Euclidean distance that keypoint moved in one frame transition (or a windowed average if the video has many frames). Spikes indicate bursts of movement.",
+  motionTrend:
+    "Smoothed version of the timeline above using a rolling average (window of 10). Reduces noise to reveal overall activity trends over time.",
+};
+
+function InfoTooltip({ text, placement = "right" }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <span
+      className="info-tooltip-wrap"
+      onMouseEnter={() => setVisible(true)}
+      onMouseLeave={() => setVisible(false)}
+    >
+      <span className="info-icon">ⓘ</span>
+      {visible && (
+        <span className={`info-tooltip${placement === "above" ? " info-tooltip--above" : ""}`}>
+          {text}
+        </span>
+      )}
+    </span>
+  );
+}
+
 function MotionCharts({ data }) {
   const [selectedWorm, setSelectedWorm] = useState(null);
+  const [hoveredTimeKey, setHoveredTimeKey] = useState(null);
+  const [hoveredRollKey, setHoveredRollKey] = useState(null);
 
   useEffect(() => {
     setSelectedWorm((prev) => {
@@ -68,6 +101,22 @@ function MotionCharts({ data }) {
 
   const timeSeriesData = getTimeSeriesData();
 
+  // Compute rolling average with window size 10
+  const ROLLING_WINDOW = 10;
+  const rollingAvgData = (() => {
+    if (timeSeriesData.length === 0) return [];
+    const keys = ["head", "mid", "tail"];
+    return timeSeriesData.map((point, i) => {
+      const start = Math.max(0, i - ROLLING_WINDOW + 1);
+      const result = { frame: point.frame };
+      for (const key of keys) {
+        const slice = timeSeriesData.slice(start, i + 1).map((p) => p[key]).filter((v) => v != null);
+        result[key] = slice.length > 0 ? slice.reduce((a, b) => a + b, 0) / slice.length : null;
+      }
+      return result;
+    });
+  })();
+
   return (
     <div className="motion-analysis">
       <h3 className="motion-title">Motion Analysis</h3>
@@ -81,10 +130,10 @@ function MotionCharts({ data }) {
           {/* Header row */}
           <div className="heatmap-row heatmap-header">
             <div className="heatmap-label"></div>
-            <div className="heatmap-cell-header">Overall</div>
-            <div className="heatmap-cell-header">Head</div>
-            <div className="heatmap-cell-header">Mid-body</div>
-            <div className="heatmap-cell-header">Tail</div>
+            <div className="heatmap-cell-header">Overall<InfoTooltip text={TOOLTIPS.overall} /></div>
+            <div className="heatmap-cell-header">Head<InfoTooltip text={TOOLTIPS.head} /></div>
+            <div className="heatmap-cell-header">Mid-body<InfoTooltip text={TOOLTIPS.mid} /></div>
+            <div className="heatmap-cell-header">Tail<InfoTooltip text={TOOLTIPS.tail} /></div>
           </div>
 
           {/* Data rows */}
@@ -128,7 +177,7 @@ function MotionCharts({ data }) {
 
           {/* Summary row */}
           <div className="heatmap-row heatmap-summary">
-            <div className="heatmap-label">Mean</div>
+            <div className="heatmap-label">Mean<InfoTooltip text={TOOLTIPS.mean} /></div>
             <div className="heatmap-cell summary-cell">
               {data.mean_motion.toFixed(2)} <span className="std">±{data.std_motion.toFixed(2)}</span>
             </div>
@@ -149,10 +198,10 @@ function MotionCharts({ data }) {
       {timeSeriesData.length > 0 && (
         <div className="timeline-container">
           <h4 className="timeline-title">
-            Worm {activeWorm} — Motion Over Time
+            Worm {activeWorm} — Motion Over Time<InfoTooltip text={TOOLTIPS.motionOverTime} placement="above" />
           </h4>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={timeSeriesData} margin={{ top: 10, right: 30, left: 10, bottom: 5 }}>
+            <LineChart data={timeSeriesData} margin={{ top: 10, right: 30, left: 10, bottom: 25 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
               <XAxis
                 dataKey="frame"
@@ -175,8 +224,10 @@ function MotionCharts({ data }) {
                 labelFormatter={(label) => `Frame ${label}`}
               />
               <Legend
-                wrapperStyle={{ fontSize: "12px" }}
+                wrapperStyle={{ paddingTop: 16, fontSize: "12px" }}
                 iconType="line"
+                onMouseEnter={(e) => setHoveredTimeKey(e.dataKey)}
+                onMouseLeave={() => setHoveredTimeKey(null)}
               />
               <Line
                 type="monotone"
@@ -185,6 +236,7 @@ function MotionCharts({ data }) {
                 strokeWidth={1.5}
                 dot={false}
                 name="Head"
+                strokeOpacity={hoveredTimeKey && hoveredTimeKey !== "head" ? 0.1 : 1}
               />
               <Line
                 type="monotone"
@@ -194,6 +246,7 @@ function MotionCharts({ data }) {
                 dot={false}
                 name="Mid-body"
                 connectNulls={false}
+                strokeOpacity={hoveredTimeKey && hoveredTimeKey !== "mid" ? 0.1 : 1}
               />
               <Line
                 type="monotone"
@@ -202,6 +255,75 @@ function MotionCharts({ data }) {
                 strokeWidth={1.5}
                 dot={false}
                 name="Tail"
+                strokeOpacity={hoveredTimeKey && hoveredTimeKey !== "tail" ? 0.1 : 1}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* Rolling Average Chart */}
+      {rollingAvgData.length > 0 && (
+        <div className="timeline-container">
+          <h4 className="timeline-title">
+            Worm {activeWorm} — Motion Trend (Rolling Average)<InfoTooltip text={TOOLTIPS.motionTrend} placement="above" />
+          </h4>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={rollingAvgData} margin={{ top: 10, right: 30, left: 10, bottom: 25 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <XAxis
+                dataKey="frame"
+                stroke="#9ca3af"
+                tick={{ fontSize: 10 }}
+                label={{ value: "Frame", position: "insideBottom", offset: -5, fill: "#9ca3af", fontSize: 10 }}
+              />
+              <YAxis
+                stroke="#9ca3af"
+                tick={{ fontSize: 10 }}
+                label={{ value: "px/frame", angle: -90, position: "insideLeft", fill: "#9ca3af", fontSize: 10 }}
+              />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: "#1f2937",
+                  border: "1px solid #374151",
+                  borderRadius: "8px",
+                }}
+                formatter={(value) => [value != null ? value.toFixed(3) : "—", ""]}
+                labelFormatter={(label) => `Frame ${label}`}
+              />
+              <Legend
+                wrapperStyle={{ paddingTop: 16, fontSize: "12px" }}
+                iconType="line"
+                onMouseEnter={(e) => setHoveredRollKey(e.dataKey)}
+                onMouseLeave={() => setHoveredRollKey(null)}
+              />
+              <Line
+                type="monotone"
+                dataKey="head"
+                stroke="#ef4444"
+                strokeWidth={1.5}
+                dot={false}
+                name="Head"
+                strokeOpacity={hoveredRollKey && hoveredRollKey !== "head" ? 0.1 : 1}
+              />
+              <Line
+                type="monotone"
+                dataKey="mid"
+                stroke="#a855f7"
+                strokeWidth={1.5}
+                dot={false}
+                name="Mid-body"
+                connectNulls={false}
+                strokeOpacity={hoveredRollKey && hoveredRollKey !== "mid" ? 0.1 : 1}
+              />
+              <Line
+                type="monotone"
+                dataKey="tail"
+                stroke="#3b82f6"
+                strokeWidth={1.5}
+                dot={false}
+                name="Tail"
+                strokeOpacity={hoveredRollKey && hoveredRollKey !== "tail" ? 0.1 : 1}
               />
             </LineChart>
           </ResponsiveContainer>

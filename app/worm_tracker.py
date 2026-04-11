@@ -296,9 +296,12 @@ def compute_motion_stats(keypoint_tracks):
         head_distances = distances[0]  # Shape: (num_frames-1,)
         avg_head_motion = np.mean(head_distances)
 
-        # Mid-body motion (middle keypoint)
+        # Mid-body motion (average of 3 middle keypoints to reduce noise from single-point jitter)
         mid_idx = num_keypoints // 2
-        mid_distances = distances[mid_idx]  # Shape: (num_frames-1,)
+        if num_keypoints >= 3:
+            mid_distances = (distances[mid_idx - 1] + distances[mid_idx] + distances[mid_idx + 1]) / 3.0
+        else:
+            mid_distances = distances[mid_idx]  # fallback for very few keypoints
         avg_mid_motion = np.mean(mid_distances)
 
         # Tail motion (last keypoint)

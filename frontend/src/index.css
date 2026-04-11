@@ -421,6 +421,7 @@ input[type="file"] {
   white-space: nowrap;
 }
 .heatmap-cell-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -454,6 +455,50 @@ input[type="file"] {
   font-size: 10px;
   opacity: 0.7;
   margin-left: 4px;
+}
+
+/* ===== Info Tooltips ===== */
+.info-tooltip-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+}
+.info-icon {
+  color: #9ca3af;
+  font-size: 9px;
+  cursor: default;
+  line-height: 1;
+  user-select: none;
+}
+.info-tooltip {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 8px 12px;
+  min-width: 350px;
+  max-width: 400px;
+  width: max-content;
+  font-size: 11px;
+  color: #e5e7eb;
+  z-index: 10;
+  white-space: normal;
+  line-height: 1.4;
+  text-align: left;
+  pointer-events: none;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.info-tooltip--above {
+  top: auto;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
 }
 
 /* ===== Timeline ===== */
