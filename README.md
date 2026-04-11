@@ -10,48 +10,30 @@ A full-stack application for tracking *Caenorhabditis elegans* (C. elegans) in v
 
 ## Features
 
-<table>
-<tr>
-<td width="50%">
-
 ### 🎥 Side-by-Side Video Comparison
 Compare original and tracked videos with a synchronized draggable slider. See exactly how tracking overlays map to the raw footage.
 
-</td>
-<td width="50%">
-<img src="media/App-with-Split.png" alt="Video comparison slider" width="450" />
-</td>
-</tr>
-<tr>
-<td width="50%">
-<img src="media/MotionAnalysis.png" alt="Motion analysis dashboard" width="450" />
-</td>
-<td width="50%">
+<p align="center">
+  <img src="media/app-split.png" alt="Video comparison slider" width="750" />
+</p>
+
+---
 
 ### 📊 Motion Analysis Dashboard
 Color-coded heatmap showing overall, head, mid-body, and tail motion per worm. Click any row to view per-frame displacement charts with a rolling average for trend analysis. Hover legend items to isolate individual lines.
 
-</td>
-</tr>
-<tr>
-<td width="50%">
+<p align="center">
+  <img src="media/motion-analysis.png" alt="Motion analysis dashboard" width="750" />
+</p>
+
+---
 
 ### 📁 Multi-File Upload & Job Queue
 Upload multiple videos — they queue and process sequentially. Full job history with view, download, and delete. Re-run any job with different parameters without re-uploading.
 
-</td>
-<td width="50%">
-<img src="media/Parameter-Panel.png" alt="Parameter panel with job queue" width="450" />
-</td>
-</tr>
-</table>
-
 <p align="center">
-  <img src="media/Tracked-Worm-Closeup.png" alt="Close-up of tracked worm with color-coded keypoints" width="250" />
-  <br />
-  <em>Color-coded keypoints along the worm skeleton — head (red/orange) through mid-body (green) to tail (blue)</em>
+  <img src="media/parameter-panel.png" alt="Parameter panel with job queue" width="750" />
 </p>
-
 ### Additional Features
 
 - **Head/Tail Correction** — Manually flip head↔tail assignment for individual worms, recomputes all metrics
