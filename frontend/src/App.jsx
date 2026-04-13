@@ -707,7 +707,7 @@ function App() {
         {/* Footer */}
         <footer className="footer">
           <span>A collaboration between the <a href="https://www.vclab.ca" target="_blank" rel="noopener noreferrer">Visual Computing Lab</a> and the Forrester Lab, Faculty of Science, Ontario Tech University.</span>
-          <span>Lead developer: <a href="https://ca.linkedin.com/in/aaveg-shangari" target="_blank" rel="noopener noreferrer">Aaveg Shingari</a> — the first version of ParaTracker was completed during his Honours Thesis in the Visual Computing Lab.</span>
+          <span>Lead developer: <a href="https://ca.linkedin.com/in/aaveg-shangari" target="_blank" rel="noopener noreferrer">Aaveg Shangari</a> — the first version of ParaTracker was completed during his Honours Thesis in the Visual Computing Lab.</span>
         </footer>
       </main>
     </div>
