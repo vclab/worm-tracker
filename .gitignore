@@ -37,7 +37,7 @@ frontend/dist/
 *.mp4
 *.avi
 *.mkv
-*.yaml
+*_metadata.yaml
 *.npz
 *.log
 
