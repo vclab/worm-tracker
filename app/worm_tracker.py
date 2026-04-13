@@ -542,7 +542,11 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
                         if cost[i, j] < 80:
                             prev_vec = prev_keypoints[i][-1] - prev_keypoints[i][0]
                             curr_vec = current_keypoints[j][-1] - current_keypoints[j][0]
-                            if np.dot(prev_vec, curr_vec) < 0:
+                            prev_mag = np.linalg.norm(prev_vec)
+                            curr_mag = np.linalg.norm(curr_vec)
+                            # Only flip if both vectors have meaningful length — avoids
+                            # incorrectly reversing a worm that is nearly stationary or curled
+                            if prev_mag > 1e-6 and curr_mag > 1e-6 and np.dot(prev_vec, curr_vec) < 0:
                                 current_keypoints[j] = current_keypoints[j][::-1]
                             current_ids[j] = prev_ids[i]
 

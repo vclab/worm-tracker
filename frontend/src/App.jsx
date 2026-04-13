@@ -1,4 +1,8 @@
 import { useRef, useState, useEffect, useCallback } from "react";
+
+// Set to false to revert to the original text-only header
+const SHOW_HEADER_IMAGE = true;
+
 import MotionCharts from "./MotionCharts";
 import JobHistory from "./JobHistory";
 import HeadTailCorrector from "./HeadTailCorrector";
@@ -71,7 +75,7 @@ function App() {
   // Check if a settings restart is pending (blocks new uploads until restart).
   useEffect(() => {
     fetch(`${API}/api/settings`)
-      .then((r) => r.json())
+      .then((r) => r.ok ? r.json() : Promise.reject(new Error(r.statusText)))
       .then((data) => { if (data.restart_pending) setRestartPending(true); })
       .catch(() => {});
   }, []);
@@ -163,6 +167,7 @@ function App() {
     const files = fileInputRef.current?.files;
     if (!files || files.length === 0) return;
     setSubmitError(null);
+    const errors = [];
 
     for (const file of files) {
       const formData = new FormData();
@@ -180,18 +185,19 @@ function App() {
             setSubmitError(data.detail || "Restart the app to apply settings changes before submitting jobs.");
             return;
           }
-          setSubmitError(`Failed to queue ${file.name}: ${data.detail || res.statusText}`);
-          return;
+          errors.push(`${file.name}: ${data.detail || res.statusText}`);
         }
       } catch (err) {
-        setSubmitError(`Failed to queue ${file.name}: ${err.message}`);
-        return;
+        errors.push(`${file.name}: ${err.message}`);
       }
     }
 
     fileInputRef.current.value = "";
     setFileName("");
     setHistoryKey((k) => k + 1);
+    if (errors.length > 0) {
+      setSubmitError(`Failed to queue: ${errors.join("; ")}`);
+    }
   };
 
   // Load a completed job from history into the results view
@@ -233,7 +239,7 @@ function App() {
       const ctrl = new AbortController();
       motionStatsAbortRef.current = ctrl;
       fetch(`${API}${job.motion_stats_path}`, { signal: ctrl.signal })
-        .then((r) => r.json())
+        .then((r) => r.ok ? r.json() : Promise.reject(new Error(r.statusText)))
         .then((stats) => {
           if (loadingJobRef.current === thisJobId) {
             setMotionStats(stats);
@@ -306,11 +312,20 @@ function App() {
         {/* Header */}
         <div className="header">
           <div className="header-left">
-            <div className="title-row">
-              <h1 className="title">WORM TRACKER</h1>
-              <span className="version">v1.1.1</span>
+            {SHOW_HEADER_IMAGE && (
+              <img
+                src="/thumbnail.png"
+                alt="Original and tracked microfilaria"
+                className="header-thumbnail"
+              />
+            )}
+            <div className="header-title-block">
+              <div className="title-row">
+                <h1 className="title">PARATRACKER</h1>
+                <span className="version">v1.1.2</span>
+              </div>
+              <p className="subtitle">Microfilaria motion analysis</p>
             </div>
-            <p className="subtitle">C. elegans motion analysis</p>
           </div>
           <div className="header-right">
             {processedUrl ? (
@@ -691,7 +706,8 @@ function App() {
 
         {/* Footer */}
         <footer className="footer">
-          <a href="https://www.vclab.ca" target="_blank" rel="noopener noreferrer">VCLab</a><span>, Faculty of Science, Ontario Tech University</span>
+          <span>A collaboration between the <a href="https://www.vclab.ca" target="_blank" rel="noopener noreferrer">Visual Computing Lab</a> and the Forrester Lab, Faculty of Science, Ontario Tech University.</span>
+          <span>Lead developer: <a href="https://ca.linkedin.com/in/aaveg-shangari" target="_blank" rel="noopener noreferrer">Aaveg Shingari</a> — the first version of ParaTracker was completed during his Honours Thesis in the Visual Computing Lab.</span>
         </footer>
       </main>
     </div>

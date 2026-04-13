@@ -1,4 +1,23 @@
-.PHONY: clean clean-python clean-frontend clean-build
+.PHONY: dist build run clean clean-python clean-frontend clean-build
+
+SHELL := /bin/bash
+
+dist: clean
+	./build.sh
+
+build: frontend/node_modules/.install-stamp
+
+frontend/node_modules/.install-stamp: frontend/package.json
+	cd frontend && npm install
+	@touch frontend/node_modules/.install-stamp
+
+run: frontend/node_modules/.install-stamp
+	@lsof -ti:8000 | xargs kill -9 2>/dev/null; true
+	@trap 'kill 0' INT TERM EXIT; \
+		source ~/venv/worm-tracker/bin/activate && \
+		uvicorn app.main:app --reload --port 8000 & \
+		npm --prefix frontend run dev; \
+		wait
 
 clean: clean-python clean-frontend clean-build
 	@echo "Done."

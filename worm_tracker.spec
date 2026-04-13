@@ -152,7 +152,7 @@ app_bundle = BUNDLE(
     info_plist={
         "NSHighResolutionCapable": True,
         "NSPrincipalClass": "NSApplication",
-        "CFBundleShortVersionString": "1.1.1",
-        "CFBundleVersion": "1.1.1",
+        "CFBundleShortVersionString": "1.1.2",
+        "CFBundleVersion": "1.1.2",
     },
 )

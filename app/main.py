@@ -621,8 +621,8 @@ def _heartbeat_watchdog() -> None:
                     ).fetchone()
                 if processing:
                     continue
-            except Exception:
-                pass  # if DB is unreachable, proceed with shutdown
+            except Exception as e:
+                logger.warning("Watchdog DB check failed: %s — proceeding with shutdown", e)
             logger.info("No browser heartbeat for %ds — shutting down.", _HEARTBEAT_TIMEOUT)
             import signal
             os.kill(os.getpid(), signal.SIGTERM)
@@ -727,16 +727,18 @@ def delete_job(job_id: str):
     with get_db() as conn:
         conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
 
-    job_dir = OUTPUTS / job_id
+    # Always release the in-memory NPZ lock once the DB record is gone,
+    # even if file deletion fails, so the dict doesn't grow unbounded.
     try:
-        if job_dir.exists():
-            shutil.rmtree(job_dir)
-    except Exception as e:
-        logger.warning("Could not delete output directory for job %s: %s", job_id, e)
-
-    # Release the per-job NPZ lock so it doesn't leak memory indefinitely
-    with _npz_locks_lock:
-        _npz_locks.pop(job_id, None)
+        job_dir = OUTPUTS / job_id
+        try:
+            if job_dir.exists():
+                shutil.rmtree(job_dir)
+        except Exception as e:
+            logger.warning("Could not delete output directory for job %s: %s", job_id, e)
+    finally:
+        with _npz_locks_lock:
+            _npz_locks.pop(job_id, None)
 
     return {"ok": True}
 
@@ -1090,21 +1092,25 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
             raise HTTPException(status_code=500, detail=f"NPZ validation failed: {exc}")
         tmp_npz.replace(npz_path)
 
-    # Recompute motion stats — convert arrays to list-of-lists format expected by compute_motion_stats
-    # NPZ arrays: (num_keypoints, num_frames, 2); compute_motion_stats expects {wid: [[y,x], ...] per keypoint}
-    # Exclude partial worm keys (prefix "partial_") — they are not included in motion analysis.
-    tracks_for_stats = {
-        wid: [arr[i].tolist() for i in range(arr.shape[0])]
-        for wid, arr in data.items()
-        if not wid.startswith("partial_")
-    }
-    motion_stats = compute_motion_stats(tracks_for_stats)
+        # Recompute motion stats inside the lock using the confirmed-written data,
+        # so a concurrent flip call cannot race against stale in-memory arrays.
+        # NPZ arrays: (num_keypoints, num_frames, 2); compute_motion_stats expects {wid: [[y,x], ...] per keypoint}
+        # Exclude partial worm keys (prefix "partial_") — they are not included in motion analysis.
+        tracks_for_stats = {
+            wid: [arr[i].tolist() for i in range(arr.shape[0])]
+            for wid, arr in data.items()
+            if not wid.startswith("partial_")
+        }
+        motion_stats = compute_motion_stats(tracks_for_stats)
 
-    # Save updated motion stats JSON
-    json_files = list(subdir.glob("*_motion_stats.json"))
-    if motion_stats and json_files:
-        with open(json_files[0], "w") as f:
-            json.dump(motion_stats, f, indent=2)
+        # Save updated motion stats JSON
+        json_files = list(subdir.glob("*_motion_stats.json"))
+        if motion_stats and json_files:
+            try:
+                with open(json_files[0], "w") as f:
+                    json.dump(motion_stats, f, indent=2)
+            except Exception as e:
+                logger.warning("Could not write motion stats for job %s: %s", job_id, e)
 
     # Mark job as regenerating, then schedule CSV + video + ZIP rebuild after response is sent.
     # All file operations happen atomically in the background task.
