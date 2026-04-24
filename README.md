@@ -41,8 +41,6 @@ Upload multiple videos — they queue and process sequentially. Full job history
 - **Legend Hover Highlighting** — Hover a legend item to isolate that line on the chart
 - **CSV/ZIP Export** — Download per-worm summary and per-frame timeseries data for external analysis
 
----
-
 ## Demo Videos
 
 <!-- TODO: Add demo video links once recorded -->
@@ -59,8 +57,6 @@ Upload multiple videos — they queue and process sequentially. Full job history
 
 *Coming soon — short walkthrough videos for each feature area.*
 
----
-
 ## Technology Stack
 
 | Layer | Technology |
@@ -71,8 +67,6 @@ Upload multiple videos — they queue and process sequentially. Full job history
 | Database | SQLite |
 | Video | FFmpeg (H.264 transcoding) |
 | Communication | Server-Sent Events (SSE) |
-
----
 
 ## Getting Started
 
@@ -146,8 +140,6 @@ npm run dev
 
 Open **<http://127.0.0.1:5173>** in your browser.
 
----
-
 ## How to Use
 
 1. Open the app in your browser
@@ -171,8 +163,6 @@ Open **<http://127.0.0.1:5173>** in your browser.
 | Area threshold | 50 | Minimum pixel area to consider a blob a worm |
 | Max age | 35 | Frames to keep tracking a worm after it disappears |
 | Persistence | 50 | Minimum frames tracked to include a worm in output |
-
----
 
 ## Output Formats
 
@@ -238,11 +228,9 @@ All output folders and databases are created automatically. The outputs director
 python -m app.worm_tracker input.mov output_dir --keypoints 15 --min-area 50 --max-age 35 --persistence 50
 ```
 
----
-
 ## Authors
 
-- **Aaveg Shangari** — Undergraduate Thesis Student
-- **Prof. Faisal Qureshi** — Supervisor
+- [Aaveg Shangari](https://avishangari.github.io/aaveg-portfolio/index.html) (*[linkedin](https://www.linkedin.com/in/aaveg-shangari/)*) 
+- Faisal Qureshi
 
 [VCLab](https://www.vclab.ca), Faculty of Science, Ontario Tech University
