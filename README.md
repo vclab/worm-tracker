@@ -6,8 +6,6 @@ A full-stack application for *Microfilaria motion analysis*.  The system uses sk
   <img src="media/WormTrackerDemoGif.gif" alt="Worm Tracker — upload, process, and analyze worm videos" width="800" />
 </p>
 
----
-
 ## Features
 
 ### 🎥 Side-by-Side Video Comparison
@@ -196,8 +194,6 @@ with np.load("*_keypoints.npz") as npz:
 
 **Head/tail orientation:** keypoint 0 = head (wider end), keypoint -1 = tail (narrower end). Correctable via the Head/Tail Correction tool.
 
----
-
 ## File Locations
 
 | Path | Description |
@@ -210,8 +206,6 @@ with np.load("*_keypoints.npz") as npz:
 All output folders and databases are created automatically. The outputs directory can be changed via **⚙ Settings** in the UI.
 
 > On Windows: `%APPDATA%/WormTracker/` · On Linux: `~/.config/WormTracker/`
-
----
 
 ## Troubleshooting
 
