@@ -1,6 +1,6 @@
-# Worm Tracker
+# ParaTracker
 
-A full-stack application for tracking *Caenorhabditis elegans* (C. elegans) in video. The system uses skeleton-based keypoint extraction to capture body posture and deformation over time, enabling quantitative behavioral analysis without any training data.
+A full-stack application for *Microfilaria motion analysis*.  The system uses skeleton-based keypoint extraction to capture body posture and deformation over time, enabling quantitative behavioral analysis without any training data.
 
 <p align="center">
   <img src="media/WormTrackerDemoGif.gif" alt="Worm Tracker — upload, process, and analyze worm videos" width="800" />
