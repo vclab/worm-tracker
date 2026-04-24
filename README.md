@@ -17,16 +17,12 @@ Compare original and tracked videos with a synchronized draggable slider. See ex
   <img src="media/App-with-Split.png" alt="Video comparison slider" width="750" />
 </p>
 
----
-
 ### 📊 Motion Analysis Dashboard
 Color-coded heatmap showing overall, head, mid-body, and tail motion per worm. Click any row to view per-frame displacement charts with a rolling average for trend analysis. Hover legend items to isolate individual lines.
 
 <p align="center">
   <img src="media/MotionAnalysis.png" alt="Motion analysis dashboard" width="750" />
 </p>
-
----
 
 ### 📁 Multi-File Upload & Job Queue
 Upload multiple videos — they queue and process sequentially. Full job history with view, download, and delete. Re-run any job with different parameters without re-uploading.
@@ -65,7 +61,7 @@ Upload multiple videos — they queue and process sequentially. Full job history
 
 ---
 
-## Stack
+## Technology Stack
 
 | Layer | Technology |
 |---|---|
