@@ -130,7 +130,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=None,
+    icon=str(PROJECT / "paratracker.icns"),
 )
 
 coll = COLLECT(
@@ -147,7 +147,7 @@ coll = COLLECT(
 app_bundle = BUNDLE(
     coll,
     name="WormTracker.app",
-    icon=None,
+    icon=str(PROJECT / "paratracker.icns"),
     bundle_identifier="ca.vclab.wormtracker",
     info_plist={
         "NSHighResolutionCapable": True,
