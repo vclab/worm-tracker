@@ -29,6 +29,11 @@ import cv2
 from app.worm_tracker import run_tracking, compute_motion_stats, export_csv_files, draw_tracks
 from app.config import load_config, save_config, get_config_dir
 
+# Thresholds for the large-video confirmation prompt shown at upload time.
+# Tune these without touching upload logic.
+_LARGE_VIDEO_FRAMES = 5_000          # frame count that triggers the warning
+_LARGE_VIDEO_BYTES  = 500 * 1024 ** 2  # 500 MB — file-size fallback trigger
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
     # Startup is handled at module level (lock + DB init + worker thread).
@@ -209,6 +214,13 @@ def init_db():
             "UPDATE jobs SET status='error', finished_at=?, error_msg=? "
             "WHERE status='processing'",
             (_now_iso(), "Server restarted while job was processing"),
+        )
+        # Uploads awaiting large-video confirmation are stale after restart —
+        # the temp file is still on disk but the browser dialog is gone.
+        conn.execute(
+            "UPDATE jobs SET status='cancelled', finished_at=?, error_msg=? "
+            "WHERE status='pending_confirm'",
+            (_now_iso(), "Server restarted before upload was confirmed — please re-upload"),
         )
         conn.commit()
 
@@ -846,6 +858,41 @@ async def upload_video(
         saved_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Failed to save upload: {exc}")
 
+    # Fail fast: verify the file is a readable video before queuing a job.
+    _frame_count = 0
+    _large_video: dict | None = None
+    try:
+        _cap = cv2.VideoCapture(str(saved_path))
+        if not _cap.isOpened():
+            saved_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail="Could not read this video file — it may be corrupt or an unsupported format",
+            )
+        _ret, _first_frame = _cap.read()
+        if not _ret or _first_frame is None:
+            _cap.release()
+            saved_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail="Could not read this video file — it may be corrupt or an unsupported format",
+            )
+        _frame_count = int(_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        _cap.release()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        saved_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Could not read this video file: {exc}")
+
+    # Warn before queuing very large videos — let the user confirm first.
+    _file_size = saved_path.stat().st_size
+    if _frame_count > _LARGE_VIDEO_FRAMES or _file_size > _LARGE_VIDEO_BYTES:
+        _large_video = {
+            "frame_count": _frame_count,
+            "size_mb": round(_file_size / 1024 ** 2, 1),
+        }
+
     base_name = Path(file.filename).stem  # e.g. "worm_run1" from "worm_run1.mov"
     params_dict = {
         "keypoints_per_worm": keypoints_per_worm,
@@ -859,15 +906,20 @@ async def upload_video(
         params_dict["model_weights"] = load_config().get("model_path", "")
     params_json = json.dumps(params_dict)
 
+    # Large videos are queued in 'pending_confirm' until the user confirms in the UI.
+    _job_status = "pending_confirm" if _large_video else "pending"
     with get_db() as conn:
         conn.execute(
             """INSERT INTO jobs
                (job_id, status, created_at, created_at_unix, original_filename, output_name, params_json)
-               VALUES (?, 'pending', ?, ?, ?, ?, ?)""",
-            (job_id, _now_iso(), _now_unix(), file.filename, base_name, params_json),
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (job_id, _job_status, _now_iso(), _now_unix(), file.filename, base_name, params_json),
         )
 
-    return {"job_id": job_id}
+    response: dict = {"job_id": job_id}
+    if _large_video:
+        response["large_video"] = _large_video
+    return response
 
 
 _UUID_RE = re.compile(
@@ -1257,6 +1309,19 @@ def rerun_job(job_id: str, body: _RerunIn):
         )
 
     return {"job_id": new_job_id}
+
+
+@app.post("/jobs/{job_id}/confirm")
+def confirm_large_video_job(job_id: str):
+    """Confirm queuing a large-video job that was waiting for user confirmation."""
+    with get_db() as conn:
+        result = conn.execute(
+            "UPDATE jobs SET status='pending' WHERE job_id=? AND status='pending_confirm'",
+            (job_id,),
+        )
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Job not found or already confirmed/cancelled")
+    return {"ok": True}
 
 
 @app.post("/cancel/{job_id}")

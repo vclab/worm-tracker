@@ -246,6 +246,22 @@ def draw_tracks(frame, worm_keypoints, worm_ids, keypoints_per_worm, partial_fla
                     partial_color if is_partial else (255, 255, 255), 1)
     return frame
 
+def _zero_motion_stats() -> dict:
+    """Return a valid motion-stats dict with all-zero values (no worms detected)."""
+    return {
+        "num_worms": 0,
+        "mean_motion": 0.0, "std_motion": 0.0, "min_motion": 0.0, "max_motion": 0.0,
+        "worm_ids": [], "per_worm_motion": [],
+        "head_mean_motion": 0.0, "head_std_motion": 0.0,
+        "head_min_motion": 0.0, "head_max_motion": 0.0, "per_worm_head_motion": [],
+        "mid_mean_motion": 0.0, "mid_std_motion": 0.0,
+        "mid_min_motion": 0.0, "mid_max_motion": 0.0, "per_worm_mid_motion": [],
+        "tail_mean_motion": 0.0, "tail_std_motion": 0.0,
+        "tail_min_motion": 0.0, "tail_max_motion": 0.0, "per_worm_tail_motion": [],
+        "per_frame_motion": {},
+    }
+
+
 def compute_motion_stats(keypoint_tracks):
     """
     Compute motion statistics aggregated across all worms.
@@ -259,9 +275,10 @@ def compute_motion_stats(keypoint_tracks):
     Includes per-frame motion data for time series visualization.
 
     Note: keypoint_tracks should already be filtered by persistence before calling.
+    Returns a dict with num_worms=0 and all-zero values when no tracks are provided.
     """
     if not keypoint_tracks:
-        return None
+        return _zero_motion_stats()
 
     worm_ids = []  # Track actual worm IDs
     worm_motion_values = []  # One value per worm: avg movement per keypoint per frame
@@ -347,7 +364,7 @@ def compute_motion_stats(keypoint_tracks):
         }
 
     if not worm_motion_values:
-        return None
+        return _zero_motion_stats()
 
     worm_motion_array = np.array(worm_motion_values)
     head_motion_array = np.array(head_motion_values)
@@ -507,11 +524,24 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     pbar = tqdm(total=total_frames, desc="Processing frames", unit="frame")
+    _skipped_frames = 0
+    _consecutive_read_failures = 0
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
+                # Allow a short run of unreadable frames (corrupt but recoverable codec);
+                # break only after 5 consecutive failures (normal end-of-file or unrecoverable).
+                _consecutive_read_failures += 1
+                if _consecutive_read_failures <= 5:
+                    _skipped_frames += 1
+                    logger.warning(
+                        "Could not read frame near index %d, skipping (%d skipped so far)",
+                        frame_idx, _skipped_frames,
+                    )
+                    continue
                 break
+            _consecutive_read_failures = 0
             pbar.update(1)
 
             # Report progress every 10 frames
@@ -607,6 +637,8 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
             cv2.imwrite(os.path.join(frames_dir, f"frame_{frame_idx:04d}.png"), annotated)
             frame_idx += 1
     finally:
+        if _skipped_frames > 0:
+            logger.warning("Skipped %d unreadable frame(s) during processing", _skipped_frames)
         pbar.close()
         cap.release()
 

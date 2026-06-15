@@ -31,6 +31,7 @@ function App() {
   const [motionStatsLoading, setMotionStatsLoading] = useState(false);
   const [restartPending, setRestartPending] = useState(false);
   const [showRerunDialog, setShowRerunDialog] = useState(false);
+  const [largeVideoPrompt, setLargeVideoPrompt] = useState(null); // {jobId, frameCount, sizeMb}
 
   // Head/tail overlay canvas (drawn over the comparison slider)
   const htCanvasRef = useRef(null);
@@ -183,14 +184,24 @@ function App() {
       formData.append("conf_threshold", confThreshold);
       try {
         const res = await fetch(`${API}/upload`, { method: "POST", body: formData });
+        const resData = await res.json().catch(() => ({}));
         if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
           if (res.status === 503) {
             setRestartPending(true);
-            setSubmitError(data.detail || "Restart the app to apply settings changes before submitting jobs.");
+            setSubmitError(resData.detail || "Restart the app to apply settings changes before submitting jobs.");
             return;
           }
-          errors.push(`${file.name}: ${data.detail || res.statusText}`);
+          errors.push(`${file.name}: ${resData.detail || res.statusText}`);
+          continue;
+        }
+        if (resData.large_video) {
+          // Pause and ask the user to confirm before actually queuing this job.
+          setLargeVideoPrompt({
+            jobId: resData.job_id,
+            frameCount: resData.large_video.frame_count,
+            sizeMb: resData.large_video.size_mb,
+          });
+          continue;
         }
       } catch (err) {
         errors.push(`${file.name}: ${err.message}`);
@@ -203,6 +214,37 @@ function App() {
     if (errors.length > 0) {
       setSubmitError(`Failed to queue: ${errors.join("; ")}`);
     }
+  };
+
+  const confirmLargeVideo = async () => {
+    if (!largeVideoPrompt) return;
+    const { jobId } = largeVideoPrompt;
+    setLargeVideoPrompt(null);
+    try {
+      const res = await fetch(`${API}/jobs/${jobId}/confirm`, { method: "POST" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setSubmitError(data.detail || "Failed to confirm job");
+        return;
+      }
+    } catch (err) {
+      setSubmitError(`Confirm failed: ${err.message}`);
+      return;
+    }
+    fileInputRef.current.value = "";
+    setFileName("");
+    setHistoryKey((k) => k + 1);
+  };
+
+  const cancelLargeVideo = async () => {
+    if (!largeVideoPrompt) return;
+    const { jobId } = largeVideoPrompt;
+    setLargeVideoPrompt(null);
+    try {
+      await fetch(`${API}/jobs/${jobId}`, { method: "DELETE" });
+    } catch { /* ignore — job will be cleaned up on next restart */ }
+    fileInputRef.current.value = "";
+    setFileName("");
   };
 
   // Load a completed job from history into the results view
@@ -318,6 +360,36 @@ function App() {
           submitError={submitError}
           onClearError={() => setSubmitError(null)}
         />
+      )}
+      {largeVideoPrompt && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)",
+          display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000,
+        }}>
+          <div style={{
+            background: "#1f2937", border: "1px solid #374151", borderRadius: 12,
+            padding: "1.5rem", maxWidth: 420, width: "90%",
+          }}>
+            <h3 style={{ color: "#f9fafb", margin: "0 0 0.75rem", fontSize: "1rem" }}>
+              Large video
+            </h3>
+            <p style={{ color: "#d1d5db", fontSize: "0.875rem", margin: "0 0 1.25rem", lineHeight: 1.5 }}>
+              This video is large ({largeVideoPrompt.frameCount.toLocaleString()} frames
+              {largeVideoPrompt.sizeMb > 0 ? `, ${largeVideoPrompt.sizeMb} MB` : ""}).
+              Processing may take a long time and use significant memory. Continue?
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn" onClick={confirmLargeVideo}>Continue</button>
+              <button
+                className="btn"
+                onClick={cancelLargeVideo}
+                style={{ background: "rgba(239,68,68,0.15)", border: "1px solid #ef4444", color: "#ef4444" }}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       <main className="card">
         {/* Header */}
@@ -707,7 +779,13 @@ function App() {
                 Loading motion analysis…
               </div>
             )}
-            {motionStats && (
+            {motionStats && motionStats.num_worms === 0 && (
+              <div style={{ color: "#9ca3af", fontSize: "0.82rem", marginTop: "0.5rem" }}>
+                No worms were detected in this video — try lowering the area threshold or
+                check that worms are visible in the footage.
+              </div>
+            )}
+            {motionStats && motionStats.num_worms > 0 && (
               <ErrorBoundary>
                 <MotionCharts data={motionStats} />
               </ErrorBoundary>

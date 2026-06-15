@@ -142,11 +142,24 @@ def dl_run_tracking(
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     pbar = tqdm(total=total_frames, desc="Processing frames (DL)", unit="frame")
+    _skipped_frames = 0
+    _consecutive_read_failures = 0
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
+                # Allow a short run of unreadable frames (corrupt but recoverable codec);
+                # break only after 5 consecutive failures (normal end-of-file or unrecoverable).
+                _consecutive_read_failures += 1
+                if _consecutive_read_failures <= 5:
+                    _skipped_frames += 1
+                    logger.warning(
+                        "Could not read frame near index %d, skipping (%d skipped so far)",
+                        frame_idx, _skipped_frames,
+                    )
+                    continue
                 break
+            _consecutive_read_failures = 0
             pbar.update(1)
 
             if progress_callback and frame_idx % 10 == 0:
@@ -247,6 +260,8 @@ def dl_run_tracking(
             cv2.imwrite(os.path.join(frames_dir, f"frame_{frame_idx:04d}.png"), annotated)
             frame_idx += 1
     finally:
+        if _skipped_frames > 0:
+            logger.warning("Skipped %d unreadable frame(s) during processing", _skipped_frames)
         pbar.close()
         cap.release()
 
