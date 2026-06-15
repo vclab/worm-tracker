@@ -1,0 +1,3 @@
+video,pipeline,total_unique_ids,id_discontinuity_events,mean_track_length,max_worms_in_any_single_frame
+C:\Users\COCRe\Downloads\dl-worm-tracker\input-vids\vid10.mp4,classical,62,5,108.73,21
+C:\Users\COCRe\Downloads\dl-worm-tracker\input-vids\vid10.mp4,yolo,12,0,254.0,7
