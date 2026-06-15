@@ -179,6 +179,9 @@ def compute_cost_matrix(current_pts, prev_pts):
     n_prev = len(prev_pts)
     n_curr = len(current_pts)
 
+    if n_prev == 0 or n_curr == 0:
+        return np.zeros((n_prev, n_curr))
+
     # Stack into arrays: (N, K, 2)
     prev_arr = np.array(prev_pts)    # (n_prev, K, 2)
     curr_arr = np.array(current_pts) # (n_curr, K, 2)

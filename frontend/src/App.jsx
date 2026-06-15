@@ -7,6 +7,7 @@ import MotionCharts from "./MotionCharts";
 import JobHistory from "./JobHistory";
 import HeadTailCorrector from "./HeadTailCorrector";
 import Settings from "./Settings";
+import RerunDialog from "./RerunDialog";
 import ErrorBoundary from "./ErrorBoundary";
 import { API } from "./api";
 
@@ -29,7 +30,7 @@ function App() {
   const [submitError, setSubmitError] = useState(null);
   const [motionStatsLoading, setMotionStatsLoading] = useState(false);
   const [restartPending, setRestartPending] = useState(false);
-  const [rerunMode, setRerunMode] = useState(false);
+  const [showRerunDialog, setShowRerunDialog] = useState(false);
 
   // Head/tail overlay canvas (drawn over the comparison slider)
   const htCanvasRef = useRef(null);
@@ -47,6 +48,8 @@ function App() {
   const [area, setArea] = useState(50);
   const [maxAge, setMaxAge] = useState(35);
   const [persistence, setPersistence] = useState(50);
+  const [pipeline, setPipeline] = useState("classical");
+  const [confThreshold, setConfThreshold] = useState(0.25);
   // Parameters actually used for the currently viewed job (null when not viewing)
   const [usedParams, setUsedParams] = useState(null);
 
@@ -176,6 +179,8 @@ function App() {
       formData.append("area_threshold", area);
       formData.append("max_age", maxAge);
       formData.append("persistence", persistence);
+      formData.append("pipeline", pipeline);
+      formData.append("conf_threshold", confThreshold);
       try {
         const res = await fetch(`${API}/upload`, { method: "POST", body: formData });
         if (!res.ok) {
@@ -225,6 +230,8 @@ function App() {
         if (p.area_threshold     != null) setArea(p.area_threshold);
         if (p.max_age            != null) setMaxAge(p.max_age);
         if (p.persistence        != null) setPersistence(p.persistence);
+        setPipeline(p.pipeline ?? "classical");
+        setConfThreshold(p.conf_threshold ?? 0.25);
       }
     } catch {
       setUsedParams(null);
@@ -255,19 +262,14 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  const handleRerun = async () => {
+  const handleRerun = async (params) => {
     if (!currentJobId) return;
     setSubmitError(null);
     try {
       const res = await fetch(`${API}/jobs/${currentJobId}/rerun`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          keypoints_per_worm: keypoints,
-          area_threshold: area,
-          max_age: maxAge,
-          persistence: persistence,
-        }),
+        body: JSON.stringify(params),
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
@@ -279,7 +281,7 @@ function App() {
         }
         return;
       }
-      setRerunMode(false);
+      setShowRerunDialog(false);
       setHistoryKey((k) => k + 1);
     } catch (err) {
       setSubmitError(`Re-run failed: ${err.message}`);
@@ -288,7 +290,7 @@ function App() {
 
   // Reset results view — params stay pre-filled with last-used values, now editable
   const resetForAnother = () => {
-    setRerunMode(false);
+    setShowRerunDialog(false);
     setUsedParams(null);
     setOriginalUrl(null);
     setProcessedUrl(null);
@@ -308,6 +310,15 @@ function App() {
 
   return (
     <div className="container">
+      {showRerunDialog && (
+        <RerunDialog
+          usedParams={usedParams}
+          onConfirm={handleRerun}
+          onCancel={() => { setShowRerunDialog(false); setSubmitError(null); }}
+          submitError={submitError}
+          onClearError={() => setSubmitError(null)}
+        />
+      )}
       <main className="card">
         {/* Header */}
         <div className="header">
@@ -344,7 +355,7 @@ function App() {
         </div>
 
         {/* Settings panel */}
-        {showSettings && <Settings onClose={() => setShowSettings(false)} />}
+        {showSettings && <Settings onClose={() => setShowSettings(false)} pipeline={pipeline} />}
 
         {/* Restart-required banner */}
         {restartPending && (
@@ -359,7 +370,7 @@ function App() {
         )}
 
         {/* Parameters — read-only summary while viewing a result, editable otherwise */}
-        {usedParams && !rerunMode ? (
+        {usedParams ? (
           <div className="used-params">
             <span className="used-params-label">Analysis parameters</span>
             <div className="used-params-values">
@@ -367,6 +378,10 @@ function App() {
               <span><span className="used-params-key">Area threshold</span>{usedParams.area_threshold ?? "—"}</span>
               <span><span className="used-params-key">Max age</span>{usedParams.max_age ?? "—"}</span>
               <span><span className="used-params-key">Persistence</span>{usedParams.persistence ?? "—"}</span>
+              <span><span className="used-params-key">Tracker</span>{(usedParams.pipeline ?? "classical") === "dl" ? "YOLO Tracker" : "Classical Tracker"}</span>
+              {(usedParams.pipeline === "dl") && (
+                <span><span className="used-params-key">Conf. threshold</span>{usedParams.conf_threshold ?? "—"}</span>
+              )}
             </div>
           </div>
         ) : (
@@ -415,44 +430,44 @@ function App() {
                 max={10000}
               />
             </div>
+            <div className="field">
+              <label className="label">Tracker</label>
+              <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", paddingTop: "0.2rem" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.9rem" }}>
+                  <input
+                    type="radio"
+                    value="classical"
+                    checked={pipeline === "classical"}
+                    onChange={() => setPipeline("classical")}
+                  />
+                  Classical Tracker
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.9rem" }}>
+                  <input
+                    type="radio"
+                    value="dl"
+                    checked={pipeline === "dl"}
+                    onChange={() => setPipeline("dl")}
+                  />
+                  YOLO Tracker
+                </label>
+              </div>
+            </div>
+            {pipeline === "dl" && (
+              <div className="field">
+                <label className="label">Confidence threshold</label>
+                <input
+                  className="input"
+                  type="number"
+                  value={confThreshold}
+                  onChange={(e) => setConfThreshold(Number(e.target.value))}
+                  min={0}
+                  max={1}
+                  step={0.05}
+                />
+              </div>
+            )}
           </section>
-        )}
-
-        {/* Re-run mode: banner + submit/cancel */}
-        {rerunMode && (
-          <div style={{ marginBottom: "0.75rem" }}>
-            <div style={{
-              background: "#0f1729", border: "1px solid #4f46e5", borderRadius: 8,
-              padding: "10px 14px", marginBottom: "0.75rem",
-              fontSize: "0.82rem", color: "#a5b4fc", display: "flex", gap: 8, alignItems: "center",
-            }}>
-              <span>↺</span>
-              <span>Re-running <strong>{fileName}</strong> — adjust parameters above, then submit.</span>
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <button
-                className="btn"
-                onClick={handleRerun}
-                disabled={restartPending}
-                style={restartPending ? { opacity: 0.4, cursor: "not-allowed" } : {}}
-              >
-                Submit Re-run
-              </button>
-              <button
-                className="btn"
-                onClick={() => setRerunMode(false)}
-                style={{ background: "none", border: "1px solid #374151", color: "#9ca3af" }}
-              >
-                Cancel
-              </button>
-              {submitError && (
-                <div style={{ color: "#ef4444", fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span>{submitError}</span>
-                  <button onClick={() => setSubmitError(null)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", padding: 0, fontSize: "0.85rem" }}>✕</button>
-                </div>
-              )}
-            </div>
-          </div>
         )}
 
         {/* File input */}
@@ -657,16 +672,14 @@ function App() {
                     {showHtCorrector ? "Hide H/T Correction" : "Head/Tail Correction"}
                   </button>
                 )}
-                {!rerunMode && currentJobId && (
-                  <button className="btn" onClick={() => setRerunMode(true)}>
+                {currentJobId && (
+                  <button className="btn" onClick={() => { setSubmitError(null); setShowRerunDialog(true); }}>
                     Re-run with new parameters
                   </button>
                 )}
-                {!rerunMode && (
-                  <button className="btn" onClick={resetForAnother}>
-                    Run on another file
-                  </button>
-                )}
+                <button className="btn" onClick={resetForAnother}>
+                  Run on another file
+                </button>
               </div>
             </div>
             {/* Head/Tail Correction */}

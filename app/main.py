@@ -490,18 +490,37 @@ def process_job(job_id: str):
             )
 
     try:
-        run_tracking(
-            video_path=str(saved_path),
-            output_dir=str(job_dir),
-            keypoints_per_worm=params.get("keypoints_per_worm", 15),
-            area_threshold=params.get("area_threshold", 50),
-            max_age=params.get("max_age", 35),
-            show_video=False,
-            output_name=base_name,
-            persistence=params.get("persistence", 50),
-            progress_callback=progress_callback,
-            cancel_check=lambda: cancel_event.is_set(),
-        )
+        pipeline = params.get("pipeline", "classical")
+        if pipeline == "dl":
+            from app.dl_worm_tracker import dl_run_tracking
+            model_path = params.get("model_weights") or load_config().get("model_path", "")
+            dl_run_tracking(
+                video_path=str(saved_path),
+                output_dir=str(job_dir),
+                model_path=model_path,
+                keypoints_per_worm=params.get("keypoints_per_worm", 15),
+                area_threshold=params.get("area_threshold", 50),
+                max_age=params.get("max_age", 35),
+                show_video=False,
+                output_name=base_name,
+                persistence=params.get("persistence", 50),
+                conf_threshold=params.get("conf_threshold", 0.25),
+                progress_callback=progress_callback,
+                cancel_check=lambda: cancel_event.is_set(),
+            )
+        else:
+            run_tracking(
+                video_path=str(saved_path),
+                output_dir=str(job_dir),
+                keypoints_per_worm=params.get("keypoints_per_worm", 15),
+                area_threshold=params.get("area_threshold", 50),
+                max_age=params.get("max_age", 35),
+                show_video=False,
+                output_name=base_name,
+                persistence=params.get("persistence", 50),
+                progress_callback=progress_callback,
+                cancel_check=lambda: cancel_event.is_set(),
+            )
     except Exception as e:
         error_holder[0] = e
 
@@ -649,32 +668,48 @@ def get_settings():
     cfg = load_config()
     return {
         "outputs_dir": cfg["outputs_dir"],
+        "model_path": cfg.get("model_path", ""),
         "config_dir": str(get_config_dir()),
         "restart_pending": _restart_pending,
     }
 
 
 class _SettingsIn(pydantic.BaseModel):
-    outputs_dir: str
+    outputs_dir: str | None = None
+    model_path: str | None = None
 
 
 @app.post("/api/settings")
 def update_settings(body: _SettingsIn):
     global _restart_pending
-    new_path = Path(body.outputs_dir).expanduser().resolve()
-    # Validate that the path is writable before saving
-    try:
-        new_path.mkdir(parents=True, exist_ok=True)
-        _test = new_path / ".write_test"
-        _test.touch()
-        _test.unlink()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Outputs folder is not writable: {exc}")
     cfg = load_config()
-    cfg["outputs_dir"] = str(new_path)
+    restart_required = False
+
+    if body.outputs_dir is not None:
+        new_path = Path(body.outputs_dir).expanduser().resolve()
+        # Validate that the path is writable before saving
+        try:
+            new_path.mkdir(parents=True, exist_ok=True)
+            _test = new_path / ".write_test"
+            _test.touch()
+            _test.unlink()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Outputs folder is not writable: {exc}")
+        if str(new_path) != cfg.get("outputs_dir"):
+            cfg["outputs_dir"] = str(new_path)
+            _restart_pending = True
+            restart_required = True
+
+    if body.model_path is not None:
+        cfg["model_path"] = body.model_path
+
     save_config(cfg)
-    _restart_pending = True
-    return {"ok": True, "outputs_dir": str(new_path), "restart_required": True}
+    return {
+        "ok": True,
+        "outputs_dir": cfg["outputs_dir"],
+        "model_path": cfg.get("model_path", ""),
+        "restart_required": restart_required,
+    }
 
 
 @app.post("/api/heartbeat")
@@ -755,6 +790,8 @@ async def upload_video(
     area_threshold: int = Form(50),
     max_age: int = Form(35),
     persistence: int = Form(50),
+    pipeline: str = Form("classical"),
+    conf_threshold: float = Form(0.25),
 ):
     if _restart_pending:
         raise HTTPException(
@@ -772,6 +809,10 @@ async def upload_video(
         raise HTTPException(status_code=400, detail="max_age must be 0–10000")
     if not (0 <= persistence <= 10_000):
         raise HTTPException(status_code=400, detail="persistence must be 0–10000")
+    if pipeline not in {"classical", "dl"}:
+        raise HTTPException(status_code=400, detail="pipeline must be 'classical' or 'dl'")
+    if not (0.0 <= conf_threshold <= 1.0):
+        raise HTTPException(status_code=400, detail="conf_threshold must be 0.0–1.0")
     # Reject filenames that contain path separators (e.g. "../secret")
     safe_name = Path(file.filename).name
     if not safe_name or safe_name != file.filename:
@@ -806,12 +847,17 @@ async def upload_video(
         raise HTTPException(status_code=500, detail=f"Failed to save upload: {exc}")
 
     base_name = Path(file.filename).stem  # e.g. "worm_run1" from "worm_run1.mov"
-    params_json = json.dumps({
+    params_dict = {
         "keypoints_per_worm": keypoints_per_worm,
         "area_threshold": area_threshold,
         "max_age": max_age,
         "persistence": persistence,
-    })
+        "pipeline": pipeline,
+        "conf_threshold": conf_threshold,
+    }
+    if pipeline == "dl":
+        params_dict["model_weights"] = load_config().get("model_path", "")
+    params_json = json.dumps(params_dict)
 
     with get_db() as conn:
         conn.execute(
@@ -1126,6 +1172,8 @@ class _RerunIn(pydantic.BaseModel):
     area_threshold: int = 50
     max_age: int = 35
     persistence: int = 50
+    pipeline: str = "classical"
+    conf_threshold: float = 0.25
 
 
 @app.post("/jobs/{job_id}/rerun")
@@ -1183,12 +1231,22 @@ def rerun_job(job_id: str, body: _RerunIn):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not copy original video: {exc}")
 
-    params_json = json.dumps({
+    if body.pipeline not in {"classical", "dl"}:
+        raise HTTPException(status_code=400, detail="pipeline must be 'classical' or 'dl'")
+    if not (0.0 <= body.conf_threshold <= 1.0):
+        raise HTTPException(status_code=400, detail="conf_threshold must be 0.0–1.0")
+
+    params_dict = {
         "keypoints_per_worm": body.keypoints_per_worm,
         "area_threshold": body.area_threshold,
         "max_age": body.max_age,
         "persistence": body.persistence,
-    })
+        "pipeline": body.pipeline,
+        "conf_threshold": body.conf_threshold,
+    }
+    if body.pipeline == "dl":
+        params_dict["model_weights"] = load_config().get("model_path", "")
+    params_json = json.dumps(params_dict)
 
     with get_db() as conn:
         conn.execute(

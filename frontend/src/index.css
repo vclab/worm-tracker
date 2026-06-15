@@ -627,7 +627,7 @@ input[type="file"] {
   color: #fca5a5;
 }
 .settings-hint {
-  margin-top: 12px;
+  margin-top: 8px;
   font-size: 11px;
   color: var(--muted);
   line-height: 1.5;
