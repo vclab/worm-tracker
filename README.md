@@ -31,7 +31,7 @@ Upload multiple videos and they queue and process sequentially. Full job history
 
 ### Additional Features
 
-- **Dual Tracking Pipelines**: Select between the Classical pipeline (threshold-based, no training data required) or the YOLO deep learning pipeline (better on translucent and overlapping specimens) via a dropdown before uploading
+- **Dual Tracking Pipelines**: Select between the Classical pipeline (threshold-based, no training data required) or the YOLO deep learning pipeline (better on translucent and overlapping specimens) via a selector before uploading
 - **Head/Tail Correction**: Manually flip head/tail assignment for individual worms, recomputes all metrics
 - **Re-run with New Parameters**: Adjust parameters after processing and re-run on the same file
 - **Cancel Processing**: Cancel active jobs mid-processing with automatic file cleanup
