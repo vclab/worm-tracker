@@ -358,19 +358,25 @@ def main() -> None:
     )
     parser.add_argument(
         "--output", "-o",
-        default="charts",
+        default=None,
         metavar="DIR",
-        help="Output directory for PNG files (default: charts/).",
+        help="Output directory for PNG files (default: charts/ next to this script).",
     )
     args = parser.parse_args()
 
     if args.results_dir:
         results_dir = Path(args.results_dir)
     else:
-        for candidate in ("pipeline_comparison_results", "results"):
-            if Path(candidate).is_dir():
-                results_dir = Path(candidate)
-                break
+        script_dir = Path(__file__).parent
+        for candidate in ("results", "pipeline_comparison_results"):
+            for base in (script_dir, Path.cwd()):
+                p = base / candidate
+                if p.is_dir():
+                    results_dir = p
+                    break
+            else:
+                continue
+            break
         else:
             print(
                 "ERROR: Could not find a results directory.\n"
@@ -387,7 +393,7 @@ def main() -> None:
     if not all_results:
         sys.exit(1)
 
-    output_dir = Path(args.output)
+    output_dir = Path(args.output) if args.output else Path(__file__).parent / "charts"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     print(f"\nGenerating charts -> {output_dir}/\n")

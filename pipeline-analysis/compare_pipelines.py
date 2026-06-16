@@ -33,8 +33,8 @@ import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-# ── Allow running from the project root without installing the package ─────────
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# ── Allow running from any directory — add the project root (one level up) ────
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.worm_tracker import (
     preprocess_frame,
