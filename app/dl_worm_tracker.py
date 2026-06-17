@@ -138,7 +138,7 @@ def dl_run_tracking(
     track_memory = []
     next_id = 0
     keypoint_tracks = {}
-    partial_worm_ids = set()
+    partial_cutoff = {}  # worm_id → track-index of first partial frame (slice [:cutoff] to truncate)
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     pbar = tqdm(total=total_frames, desc="Processing frames (DL)", unit="frame")
@@ -251,8 +251,8 @@ def dl_run_tracking(
                     keypoint_tracks[worm_id] = [[] for _ in range(keypoints_per_worm)]
                 for i in range(keypoints_per_worm):
                     keypoint_tracks[worm_id][i].append(kps[i])
-                if is_partial:
-                    partial_worm_ids.add(worm_id)
+                if is_partial and worm_id not in partial_cutoff:
+                    partial_cutoff[worm_id] = len(keypoint_tracks[worm_id][0]) - 1
 
             annotated = draw_tracks(
                 frame.copy(), current_keypoints, current_ids, keypoints_per_worm, current_partial_flags
@@ -301,21 +301,25 @@ def dl_run_tracking(
     out.release()
     logger.info("DL tracking complete. Output folder: %s", job_output_dir)
 
+    # Step 1: truncate edge-touching worms at their first partial frame
+    truncated_tracks = {}
+    for worm_id, kp_lists in keypoint_tracks.items():
+        if worm_id in partial_cutoff:
+            cutoff = partial_cutoff[worm_id]
+            truncated_tracks[worm_id] = [lst[:cutoff] for lst in kp_lists]
+        else:
+            truncated_tracks[worm_id] = kp_lists
+
+    # Step 2: persistence filter on the (possibly truncated) length
     filtered_tracks = {
-        worm_id: frames
-        for worm_id, frames in keypoint_tracks.items()
-        if len(frames[0]) >= persistence and worm_id not in partial_worm_ids
+        worm_id: frames for worm_id, frames in truncated_tracks.items()
+        if len(frames[0]) >= persistence
     }
-    num_low_persistence = sum(
-        1 for worm_id, frames in keypoint_tracks.items() if len(frames[0]) < persistence
-    )
-    num_partial = sum(
-        1 for worm_id in keypoint_tracks
-        if worm_id in partial_worm_ids and len(keypoint_tracks[worm_id][0]) >= persistence
-    )
+    num_truncated = len(partial_cutoff)
+    num_low_persistence = sum(1 for frames in truncated_tracks.values() if len(frames[0]) < persistence)
     num_retained = len(filtered_tracks)
-    logger.info("Discarded %d worm(s) with fewer than %d frames", num_low_persistence, persistence)
-    logger.info("Discarded %d partial worm(s) (touched frame edge)", num_partial)
+    logger.info("Truncated %d worm(s) at first edge-touch", num_truncated)
+    logger.info("Discarded %d worm(s) with fewer than %d frames after truncation", num_low_persistence, persistence)
     logger.info("Retained %d fully-visible worm(s)", num_retained)
 
     input_filename = os.path.basename(video_path)
@@ -340,8 +344,8 @@ def dl_run_tracking(
         },
         "total_frames": frame_idx,
         "worms_tracked": num_retained,
+        "worms_truncated_at_edge": num_truncated,
         "worms_discarded_low_persistence": num_low_persistence,
-        "worms_discarded_partial": num_partial,
     }
     metadata_path = os.path.join(job_output_dir, f"{job_folder}_metadata.yaml")
     with open(metadata_path, "w") as f:
@@ -350,9 +354,8 @@ def dl_run_tracking(
 
     keypoints_npz_path = os.path.join(job_output_dir, f"{job_folder}_keypoints.npz")
     npz_data = {str(worm_id): np.array(frames) for worm_id, frames in filtered_tracks.items()}
-    for worm_id, frames in keypoint_tracks.items():
-        if worm_id in partial_worm_ids:
-            npz_data[f"partial_{worm_id}"] = np.array(frames)
+    for worm_id in partial_cutoff:
+        npz_data[f"partial_{worm_id}"] = np.array(keypoint_tracks[worm_id])
     np.savez_compressed(keypoints_npz_path, **npz_data)
     logger.info("Worm keypoints saved at: %s", keypoints_npz_path)
 
