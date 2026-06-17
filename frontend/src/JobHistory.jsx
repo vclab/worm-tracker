@@ -121,6 +121,7 @@ export default function JobHistory({ refreshKey = 0, onLoad, currentJobId = null
               <tr style={{ borderBottom: "1px solid #1f2937", color: "#9ca3af", textAlign: "left" }}>
                 <th style={th}>Date</th>
                 <th style={th}>File</th>
+                <th style={th}>Tracker</th>
                 <th style={th}>Status</th>
                 <th style={th}>Downloads</th>
                 <th style={th}></th>
@@ -131,15 +132,24 @@ export default function JobHistory({ refreshKey = 0, onLoad, currentJobId = null
                 const s = STATUS_STYLES[job.status] || STATUS_STYLES.cancelled;
                 const isActive = job.status === "pending" || job.status === "processing";
                 const isCurrent = job.job_id === currentJobId;
+                let trackerLabel = "—";
+                try {
+                  const p = job.params_json ? JSON.parse(job.params_json) : null;
+                  if (p) trackerLabel = p.pipeline === "dl" ? "YOLO" : "Classical";
+                } catch {}
                 return (
                   <tr key={job.job_id} style={{ borderBottom: "1px solid #1f2937", background: isCurrent ? "rgba(99,102,241,0.08)" : "transparent" }}>
                     <td style={{ ...td, whiteSpace: "nowrap", color: "#9ca3af", borderLeft: isCurrent ? "3px solid #6366f1" : "3px solid transparent" }}>
                       {formatDate(job.created_at)}
                     </td>
-                    <td style={{ ...td, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        title={job.original_filename || ""}>
-                      {job.original_filename || "—"}
+                    <td style={td} title={job.original_filename || undefined}>
+                      {job.original_filename
+                        ? job.original_filename.length > 24
+                          ? job.original_filename.slice(0, 24) + "…"
+                          : job.original_filename
+                        : "—"}
                     </td>
+                    <td style={{ ...td, color: "#9ca3af" }}>{trackerLabel}</td>
                     <td style={td}>
                       <span style={{ color: s.color, fontWeight: 600, fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
                         {s.label}
