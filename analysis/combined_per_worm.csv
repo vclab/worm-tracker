@@ -1,0 +1,20 @@
+video,job_id,pipeline,worm_id,head,midbody,tail,overall
+Bma - strychnine 1hr - TR2 control.mp4,cc272940-56ba-4c7b-a246-5376911dd08b,dl,1.0,6.800387,5.133593,7.677655,5.595924
+Bma - strychnine 1hr - TR2 control.mp4,cc272940-56ba-4c7b-a246-5376911dd08b,dl,2.0,8.272115,4.99727,7.704417,5.733695
+Bma - strychnine 1hr - TR2 control.mp4,cc272940-56ba-4c7b-a246-5376911dd08b,dl,3.0,4.436727,3.406033,5.40893,3.67357
+Bma - strychnine 1hr - TR2 control.mp4,cc272940-56ba-4c7b-a246-5376911dd08b,dl,4.0,4.899627,3.249286,5.901599,3.892708
+Bma mf - atropine 1hr - TR3 control.mp4,1fb97783-0f75-4312-8f0d-09e4031f04da,dl,0.0,9.578505,6.508881,10.365927,7.09393
+Bma mf - atropine 1hr - TR3 control.mp4,1fb97783-0f75-4312-8f0d-09e4031f04da,dl,1.0,6.793366,5.10088,6.570255,5.309156
+Bma mf - atropine 1hr - TR3 control.mp4,1fb97783-0f75-4312-8f0d-09e4031f04da,dl,3.0,6.506426,5.565819,8.9725,5.97792
+Bma mf - atropine 1hr - TR2 control.mp4,67703fdc-a5e9-48f5-8905-a5a84f745e4e,dl,1.0,10.370194,7.077538,10.160473,7.679583
+Bma mf - atropine 1hr - TR2 control.mp4,67703fdc-a5e9-48f5-8905-a5a84f745e4e,dl,2.0,15.843502,8.848275,14.076825,10.621453
+Bma mf - atropine 1hr - TR2 control.mp4,67703fdc-a5e9-48f5-8905-a5a84f745e4e,dl,4.0,14.228749,6.453239,8.993753,8.16165
+Bma mf - atropine 1hr - TR2 control.mp4,67703fdc-a5e9-48f5-8905-a5a84f745e4e,dl,11.0,15.819537,9.48464,14.838312,11.128997
+Bma - tyramine 1hr - TR3 control.mp4,967ce987-fee6-4c0c-bec7-11ec9651eaae,dl,0.0,5.864959,3.892391,4.894478,4.239763
+Bma - tyramine 1hr - TR3 control.mp4,967ce987-fee6-4c0c-bec7-11ec9651eaae,dl,2.0,8.360954,6.194721,10.127928,6.859924
+Bma - strychnine 1hr - TR1 control.mp4,4adf6b6a-e0de-40e4-97e1-772e27b5208f,dl,0.0,5.028274,3.038723,4.574129,3.489443
+Bma - strychnine 1hr - TR1 control.mp4,4adf6b6a-e0de-40e4-97e1-772e27b5208f,dl,1.0,8.255106,6.609694,9.286373,6.865491
+Bma - strychnine 1hr - TR1 control.mp4,4adf6b6a-e0de-40e4-97e1-772e27b5208f,dl,3.0,10.061539,7.182235,11.021599,7.914854
+vid1.mov,7ae16b50-dfd3-498b-bed7-55b57dfa69a5,classical,0.0,1.986791,0.890291,0.708999,1.036959
+vid1.mov,7ae16b50-dfd3-498b-bed7-55b57dfa69a5,classical,2.0,0.888713,0.562515,1.229636,0.674578
+vid1.mov,7ae16b50-dfd3-498b-bed7-55b57dfa69a5,classical,3.0,0.252382,0.134788,0.16138,0.165388
