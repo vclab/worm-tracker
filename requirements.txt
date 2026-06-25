@@ -12,3 +12,6 @@ ultralytics
 matplotlib
 jupyter
 gdown
+pandas
+seaborn
+pydantic
