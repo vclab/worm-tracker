@@ -11,3 +11,4 @@ imageio-ffmpeg
 ultralytics
 matplotlib
 jupyter
+gdown

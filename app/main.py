@@ -78,6 +78,12 @@ app.add_middleware(
 
 APP_DIR = Path(__file__).resolve().parent
 
+# Default YOLO weights downloaded by `make weights`. Filename is content-hashed
+# so the SHA256 in the path is the integrity check. Keep DEFAULT_WEIGHTS_SHA256
+# in sync with WEIGHTS_SHA256 in the Makefile.
+DEFAULT_WEIGHTS_SHA256 = "f7712cb708c94a788f36fe8cbf9c1f479e399286ab3c9afbbb318e4c6d9f80fe"
+DEFAULT_WEIGHTS = APP_DIR.parent / "weights" / f"worm_yolov8seg-{DEFAULT_WEIGHTS_SHA256}.pt"
+
 # ---------------------------------------------------------------------------
 # Paths — outputs and DB are user-configurable; uploads live alongside outputs
 # ---------------------------------------------------------------------------
@@ -506,7 +512,11 @@ def process_job(job_id: str):
         pipeline = params.get("pipeline", "classical")
         if pipeline == "dl":
             from app.dl_worm_tracker import dl_run_tracking
-            model_path = params.get("model_weights") or load_config().get("model_path", "")
+            model_path = (
+                params.get("model_weights")
+                or load_config().get("model_path", "")
+                or (str(DEFAULT_WEIGHTS) if DEFAULT_WEIGHTS.is_file() else "")
+            )
             dl_run_tracking(
                 video_path=str(saved_path),
                 output_dir=str(job_dir),
@@ -904,7 +914,10 @@ async def upload_video(
         "conf_threshold": conf_threshold,
     }
     if pipeline == "dl":
-        params_dict["model_weights"] = load_config().get("model_path", "")
+        params_dict["model_weights"] = (
+            load_config().get("model_path", "")
+            or (str(DEFAULT_WEIGHTS) if DEFAULT_WEIGHTS.is_file() else "")
+        )
     params_json = json.dumps(params_dict)
 
     # Large videos are queued in 'pending_confirm' until the user confirms in the UI.
@@ -1298,7 +1311,10 @@ def rerun_job(job_id: str, body: _RerunIn):
         "conf_threshold": body.conf_threshold,
     }
     if body.pipeline == "dl":
-        params_dict["model_weights"] = load_config().get("model_path", "")
+        params_dict["model_weights"] = (
+            load_config().get("model_path", "")
+            or (str(DEFAULT_WEIGHTS) if DEFAULT_WEIGHTS.is_file() else "")
+        )
     params_json = json.dumps(params_dict)
 
     with get_db() as conn:

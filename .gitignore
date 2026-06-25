@@ -44,3 +44,6 @@ frontend/dist/
 # --- Local research data (not part of the codebase) ---
 Tracking/
 Exported CSV Test/
+
+# --- YOLO weights (downloaded via `make weights`) ---
+weights/
