@@ -34,8 +34,8 @@ export default function RerunDialog({ usedParams, onConfirm, onCancel, submitErr
       onClick={(e) => { if (e.target === e.currentTarget) onCancel(); }}
     >
       <div style={{
-        background: "#111827",
-        border: "1px solid #374151",
+        background: "#1c1f23",
+        border: "0.5px solid #2c3036",
         borderRadius: 12,
         padding: "1.5rem",
         width: "100%",
@@ -47,10 +47,10 @@ export default function RerunDialog({ usedParams, onConfirm, onCancel, submitErr
       }}>
         {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "1.25rem" }}>
-          <span style={{ color: "#e5e7eb", fontSize: "1rem", fontWeight: 700 }}>Re-run with parameters</span>
+          <span style={{ color: "#e8eaed", fontSize: "1rem", fontWeight: 700 }}>Re-run with parameters</span>
           <button
             onClick={onCancel}
-            style={{ background: "none", border: "none", color: "#6b7280", cursor: "pointer", fontSize: "1.1rem", padding: "0 4px", lineHeight: 1 }}
+            style={{ background: "none", border: "none", color: "#6b7178", cursor: "pointer", fontSize: "1.1rem", padding: "0 4px", lineHeight: 1 }}
             aria-label="Close"
           >✕</button>
         </div>
@@ -137,9 +137,9 @@ export default function RerunDialog({ usedParams, onConfirm, onCancel, submitErr
           <div style={{
             marginBottom: "1.25rem",
             padding: "0.75rem",
-            background: "#0f172a",
+            background: "#15171a",
             borderRadius: 8,
-            border: "1px solid #1e293b",
+            border: "0.5px solid #2c3036",
           }}>
             <div style={{ marginBottom: "0.75rem" }}>
               <label style={labelStyle}>Confidence threshold</label>
@@ -163,8 +163,8 @@ export default function RerunDialog({ usedParams, onConfirm, onCancel, submitErr
                 className="input"
                 style={{ width: "100%", opacity: 0.55, cursor: "default" }}
               />
-              <div style={{ fontSize: "0.72rem", color: "#6b7280", marginTop: "0.2rem" }}>
-                Change model weights in Settings (⚙).
+              <div style={{ fontSize: "0.72rem", color: "#6b7178", marginTop: "0.2rem" }}>
+                Change model weights in the Settings page.
               </div>
             </div>
           </div>
@@ -199,7 +199,7 @@ export default function RerunDialog({ usedParams, onConfirm, onCancel, submitErr
           <button
             className="btn"
             onClick={onCancel}
-            style={{ background: "none", border: "1px solid #374151", color: "#9ca3af" }}
+            style={{ background: "none", border: "0.5px solid #2c3036", color: "#9aa0a6" }}
           >
             Cancel
           </button>
@@ -209,5 +209,5 @@ export default function RerunDialog({ usedParams, onConfirm, onCancel, submitErr
   );
 }
 
-const labelStyle = { fontSize: "0.82rem", color: "#9ca3af", marginBottom: "0.25rem", fontWeight: 500, display: "block" };
-const radioLabelStyle = { display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.9rem", color: "#e5e7eb" };
+const labelStyle = { fontSize: "0.82rem", color: "#9aa0a6", marginBottom: "0.25rem", fontWeight: 500, display: "block" };
+const radioLabelStyle = { display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.9rem", color: "#e8eaed" };

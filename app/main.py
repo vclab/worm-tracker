@@ -28,6 +28,7 @@ import cv2
 
 from app.worm_tracker import run_tracking, compute_motion_stats, export_csv_files, draw_tracks
 from app.config import load_config, save_config, get_config_dir
+from app.aggregation import build_tables
 
 # Thresholds for the large-video confirmation prompt shown at upload time.
 # Tune these without touching upload logic.
@@ -1367,6 +1368,50 @@ def cancel_job(job_id: str):
 # In packaged/production mode FastAPI serves everything from one process.
 # Must be mounted LAST so API routes take priority.
 # ---------------------------------------------------------------------------
+
+@app.get("/api/aggregate")
+def aggregate():
+    """Return per-worm and per-video tables across all completed jobs."""
+    per_worm, per_video = build_tables()
+    return {"per_worm": per_worm, "per_video": per_video}
+
+
+class _GroupIn(pydantic.BaseModel):
+    label: str
+    job_ids: list[str]
+
+
+class _CompareIn(pydantic.BaseModel):
+    groups: list[_GroupIn]
+
+
+@app.post("/api/compare")
+def compare_groups(body: _CompareIn):
+    """Compare motion stats across named groups of jobs, split by pipeline."""
+    import pandas as pd
+
+    per_worm, _ = build_tables()
+    if not per_worm:
+        return {"results": []}
+
+    pw = pd.DataFrame(per_worm)
+    results = []
+
+    for group in body.groups:
+        job_id_set = set(group.job_ids)
+        subset = pw[pw["job_id"].isin(job_id_set)]
+        if subset.empty:
+            continue
+        for pipeline, pl_df in subset.groupby("pipeline"):
+            n = len(pl_df)
+            row: dict = {"group": group.label, "pipeline": pipeline, "n": n}
+            for col in ("head", "midbody", "tail", "overall"):
+                row[f"{col}_mean"] = pl_df[col].mean()
+                row[f"{col}_std"]  = float(pl_df[col].std()) if n > 1 else 0.0
+            results.append(row)
+
+    return {"results": results}
+
 
 def _find_frontend_dist() -> Path | None:
     # PyInstaller bundle: data files land in sys._MEIPASS (_internal/ dir)

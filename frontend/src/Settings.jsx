@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { API } from "./api";
 
-function Settings({ onClose, pipeline }) {
+function Settings({ pipeline, hideTitle = false }) {
   const [outputsDir, setOutputsDir] = useState("");
   const [configDir, setConfigDir] = useState("");
   const [draft, setDraft] = useState("");
@@ -120,119 +120,114 @@ function Settings({ onClose, pipeline }) {
     setEditingModel(false);
   };
 
+  if (loading) {
+    return <div className="settings-loading">Loading…</div>;
+  }
+
   return (
-    <div className="settings-panel">
-      <div className="settings-header">
-        <span className="settings-title">Settings</span>
-        <button
-          className="settings-close"
-          onClick={onClose}
-          onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && onClose()}
-          tabIndex={0}
-          aria-label="Close settings"
-        >✕</button>
+    <>
+      {!hideTitle && <h2 className="settings-page-title">Settings</h2>}
+
+      {/* 1. CONFIG FOLDER */}
+      <div className="settings-section">
+        <div className="settings-label">CONFIG FOLDER</div>
+        {editingConfig ? (
+          <div className="settings-edit">
+            <input
+              className="settings-input"
+              value={configDraft}
+              onChange={(e) => setConfigDraft(e.target.value)}
+              spellCheck={false}
+            />
+            <div className="settings-actions">
+              <button className="btn" onClick={handleConfigSave}>Save</button>
+              <button className="btn" onClick={handleConfigCancel}>Cancel</button>
+            </div>
+          </div>
+        ) : (
+          <div className="settings-value-row">
+            <span className="settings-value">{configDir || "—"}</span>
+            <button className="btn" onClick={() => { setSavedConfig(false); setEditingConfig(true); }}>
+              Edit
+            </button>
+          </div>
+        )}
+        {configError && <div className="settings-error">{configError}</div>}
+        {savedConfig && <div className="settings-note">Config path saved.</div>}
       </div>
 
-      {loading ? (
-        <div className="settings-loading">Loading…</div>
-      ) : (
-        <>
-          {/* 1. CONFIG FOLDER */}
-          <div className="settings-label">CONFIG FOLDER</div>
-          {editingConfig ? (
-            <div className="settings-edit" style={{ marginTop: "8px" }}>
-              <input
-                className="settings-input"
-                value={configDraft}
-                onChange={(e) => setConfigDraft(e.target.value)}
-                spellCheck={false}
-              />
-              <div className="settings-actions">
-                <button className="btn" onClick={handleConfigSave}>Save</button>
-                <button className="btn" onClick={handleConfigCancel}>Cancel</button>
-              </div>
+      {/* 2. OUTPUTS FOLDER */}
+      <div className="settings-section">
+        <div className="settings-label">OUTPUTS FOLDER</div>
+        {editing ? (
+          <div className="settings-edit">
+            <input
+              className="settings-input"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              spellCheck={false}
+            />
+            <div className="settings-actions">
+              <button className="btn" onClick={handleSave}>Save</button>
+              <button className="btn" onClick={handleCancel}>Cancel</button>
             </div>
-          ) : (
-            <div className="settings-value-row" style={{ marginTop: "8px" }}>
-              <span className="settings-value">{configDir || "—"}</span>
-              <button className="btn" onClick={() => { setSavedConfig(false); setEditingConfig(true); }}>
-                Edit
-              </button>
-            </div>
-          )}
-          {configError && <div className="settings-error">{configError}</div>}
-          {savedConfig && <div className="settings-note">Config path saved.</div>}
-
-          {/* 2. OUTPUTS FOLDER */}
-          <div className="settings-label" style={{ marginTop: "24px" }}>OUTPUTS FOLDER</div>
-          {editing ? (
-            <div className="settings-edit" style={{ marginTop: "8px" }}>
-              <input
-                className="settings-input"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                spellCheck={false}
-              />
-              <div className="settings-actions">
-                <button className="btn" onClick={handleSave}>Save</button>
-                <button className="btn" onClick={handleCancel}>Cancel</button>
-              </div>
-            </div>
-          ) : (
-            <div className="settings-value-row" style={{ marginTop: "8px" }}>
-              <span className="settings-value">{outputsDir}</span>
-              <button className="btn" onClick={() => { setSaved(false); setEditing(true); }}>
-                Edit
-              </button>
-            </div>
-          )}
-          {error && <div className="settings-error">{error}</div>}
-          {saved && <div className="settings-note">Restart the app for changes to take effect.</div>}
-          <div className="settings-hint">
-            Each outputs folder has its own job history. The database (<code>jobs.db</code>) lives inside the outputs folder.
           </div>
+        ) : (
+          <div className="settings-value-row">
+            <span className="settings-value">{outputsDir}</span>
+            <button className="btn" onClick={() => { setSaved(false); setEditing(true); }}>
+              Edit
+            </button>
+          </div>
+        )}
+        {error && <div className="settings-error">{error}</div>}
+        {saved && <div className="settings-note">Restart the app for changes to take effect.</div>}
+        <div className="settings-hint">
+          Each outputs folder has its own job history. The database (<code>jobs.db</code>) lives inside the outputs folder.
+        </div>
+      </div>
 
-          {/* 3. TRACKER CONFIGURATION */}
-          <div className="settings-label" style={{ marginTop: "24px" }}>TRACKER CONFIGURATION</div>
-          {pipeline === "classical" ? (
-            <div style={{ fontSize: "0.82rem", fontStyle: "italic", color: "#9ca3af", marginTop: "16px" }}>
-              No additional configuration required for the Classical Tracker.
-            </div>
-          ) : (
-            <>
-              <div className="settings-label" style={{ marginTop: "16px" }}>MODEL WEIGHTS</div>
-              {editingModel ? (
-                <div className="settings-edit" style={{ marginTop: "8px" }}>
-                  <input
-                    className="settings-input"
-                    value={modelPathDraft}
-                    onChange={(e) => setModelPathDraft(e.target.value)}
-                    spellCheck={false}
-                    placeholder="/path/to/best.pt"
-                  />
-                  <div className="settings-actions">
-                    <button className="btn" onClick={handleModelSave}>Save</button>
-                    <button className="btn" onClick={handleModelCancel}>Cancel</button>
-                  </div>
+      {/* 3. TRACKER CONFIGURATION */}
+      <div className="settings-section">
+        <div className="settings-label">TRACKER CONFIGURATION</div>
+        {pipeline === "classical" ? (
+          <div style={{ fontSize: "0.82rem", fontStyle: "italic", color: "var(--text-muted)", marginTop: "16px" }}>
+            No additional configuration required for the Classical Tracker.
+          </div>
+        ) : (
+          <>
+            <div className="settings-label" style={{ marginTop: "16px" }}>MODEL WEIGHTS</div>
+            {editingModel ? (
+              <div className="settings-edit">
+                <input
+                  className="settings-input"
+                  value={modelPathDraft}
+                  onChange={(e) => setModelPathDraft(e.target.value)}
+                  spellCheck={false}
+                  placeholder="/path/to/best.pt"
+                />
+                <div className="settings-actions">
+                  <button className="btn" onClick={handleModelSave}>Save</button>
+                  <button className="btn" onClick={handleModelCancel}>Cancel</button>
                 </div>
-              ) : (
-                <div className="settings-value-row" style={{ marginTop: "8px" }}>
-                  <span className="settings-value" style={{ opacity: modelPath ? 1 : 0.4 }}>
-                    {modelPath || "Not configured"}
-                  </span>
-                  <button className="btn" onClick={() => { setSavedModel(false); setEditingModel(true); }}>
-                    Edit
-                  </button>
-                </div>
-              )}
-              {modelError && <div className="settings-error">{modelError}</div>}
-              {savedModel && <div className="settings-note">Model path saved.</div>}
-              <div className="settings-hint">Path to YOLOv8-seg .pt weights file.</div>
-            </>
-          )}
-        </>
-      )}
-    </div>
+              </div>
+            ) : (
+              <div className="settings-value-row">
+                <span className="settings-value" style={{ opacity: modelPath ? 1 : 0.4 }}>
+                  {modelPath || "Not configured"}
+                </span>
+                <button className="btn" onClick={() => { setSavedModel(false); setEditingModel(true); }}>
+                  Edit
+                </button>
+              </div>
+            )}
+            {modelError && <div className="settings-error">{modelError}</div>}
+            {savedModel && <div className="settings-note">Model path saved.</div>}
+            <div className="settings-hint">Path to YOLOv8-seg .pt weights file.</div>
+          </>
+        )}
+      </div>
+    </>
   );
 }
 

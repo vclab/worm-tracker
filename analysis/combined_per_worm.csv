@@ -1,20 +1,43 @@
 video,job_id,pipeline,worm_id,head,midbody,tail,overall
-Bma - strychnine 1hr - TR2 control.mp4,cc272940-56ba-4c7b-a246-5376911dd08b,dl,1.0,6.800387,5.133593,7.677655,5.595924
-Bma - strychnine 1hr - TR2 control.mp4,cc272940-56ba-4c7b-a246-5376911dd08b,dl,2.0,8.272115,4.99727,7.704417,5.733695
-Bma - strychnine 1hr - TR2 control.mp4,cc272940-56ba-4c7b-a246-5376911dd08b,dl,3.0,4.436727,3.406033,5.40893,3.67357
-Bma - strychnine 1hr - TR2 control.mp4,cc272940-56ba-4c7b-a246-5376911dd08b,dl,4.0,4.899627,3.249286,5.901599,3.892708
-Bma mf - atropine 1hr - TR3 control.mp4,1fb97783-0f75-4312-8f0d-09e4031f04da,dl,0.0,9.578505,6.508881,10.365927,7.09393
-Bma mf - atropine 1hr - TR3 control.mp4,1fb97783-0f75-4312-8f0d-09e4031f04da,dl,1.0,6.793366,5.10088,6.570255,5.309156
-Bma mf - atropine 1hr - TR3 control.mp4,1fb97783-0f75-4312-8f0d-09e4031f04da,dl,3.0,6.506426,5.565819,8.9725,5.97792
-Bma mf - atropine 1hr - TR2 control.mp4,67703fdc-a5e9-48f5-8905-a5a84f745e4e,dl,1.0,10.370194,7.077538,10.160473,7.679583
-Bma mf - atropine 1hr - TR2 control.mp4,67703fdc-a5e9-48f5-8905-a5a84f745e4e,dl,2.0,15.843502,8.848275,14.076825,10.621453
-Bma mf - atropine 1hr - TR2 control.mp4,67703fdc-a5e9-48f5-8905-a5a84f745e4e,dl,4.0,14.228749,6.453239,8.993753,8.16165
-Bma mf - atropine 1hr - TR2 control.mp4,67703fdc-a5e9-48f5-8905-a5a84f745e4e,dl,11.0,15.819537,9.48464,14.838312,11.128997
-Bma - tyramine 1hr - TR3 control.mp4,967ce987-fee6-4c0c-bec7-11ec9651eaae,dl,0.0,5.864959,3.892391,4.894478,4.239763
-Bma - tyramine 1hr - TR3 control.mp4,967ce987-fee6-4c0c-bec7-11ec9651eaae,dl,2.0,8.360954,6.194721,10.127928,6.859924
-Bma - strychnine 1hr - TR1 control.mp4,4adf6b6a-e0de-40e4-97e1-772e27b5208f,dl,0.0,5.028274,3.038723,4.574129,3.489443
-Bma - strychnine 1hr - TR1 control.mp4,4adf6b6a-e0de-40e4-97e1-772e27b5208f,dl,1.0,8.255106,6.609694,9.286373,6.865491
-Bma - strychnine 1hr - TR1 control.mp4,4adf6b6a-e0de-40e4-97e1-772e27b5208f,dl,3.0,10.061539,7.182235,11.021599,7.914854
-vid1.mov,7ae16b50-dfd3-498b-bed7-55b57dfa69a5,classical,0.0,1.986791,0.890291,0.708999,1.036959
-vid1.mov,7ae16b50-dfd3-498b-bed7-55b57dfa69a5,classical,2.0,0.888713,0.562515,1.229636,0.674578
-vid1.mov,7ae16b50-dfd3-498b-bed7-55b57dfa69a5,classical,3.0,0.252382,0.134788,0.16138,0.165388
+Bma - strychnine 1hr - TR1 control.mp4,1cb80c57-27cb-4c3f-9ffd-99fb0e67fd0c,dl,0.0,8.211733,5.036436,6.379743,5.556434
+Bma - strychnine 1hr - TR1 control.mp4,1cb80c57-27cb-4c3f-9ffd-99fb0e67fd0c,dl,1.0,4.726718,2.88155,4.133834,3.284514
+Bma - strychnine 1hr - TR1 control.mp4,1cb80c57-27cb-4c3f-9ffd-99fb0e67fd0c,dl,2.0,7.417031,5.482548,9.633301,6.25469
+Bma - strychnine 1hr - TR1 control.mp4,1cb80c57-27cb-4c3f-9ffd-99fb0e67fd0c,dl,4.0,10.847515,6.200772,8.732269,7.206771
+Bma - strychnine 1hr - TR1 control.mp4,1cb80c57-27cb-4c3f-9ffd-99fb0e67fd0c,dl,13.0,12.394281,10.178109,17.474767,11.090486
+Bma - strychnine 1hr - TR2 control.mp4,74536524-4e5e-490e-b353-b167fad32ed7,dl,0.0,7.670338,4.876195,7.152442,5.498836
+Bma - strychnine 1hr - TR2 control.mp4,74536524-4e5e-490e-b353-b167fad32ed7,dl,2.0,6.532271,4.39238,6.102914,4.927641
+Bma - strychnine 1hr - TR2 control.mp4,74536524-4e5e-490e-b353-b167fad32ed7,dl,3.0,4.949979,3.499918,4.881064,3.796447
+Bma - strychnine 1hr - TR2 control.mp4,74536524-4e5e-490e-b353-b167fad32ed7,dl,4.0,4.329875,3.173725,5.070768,3.64759
+Bma - tyramine 1hr - TR1 control.mp4,506c7ab3-5ecc-4fe5-a740-f2da34fb4a66,dl,0.0,6.907186,4.757937,6.165385,4.865233
+Bma - tyramine 1hr - TR1 control.mp4,506c7ab3-5ecc-4fe5-a740-f2da34fb4a66,dl,1.0,8.060707,4.111023,4.93109,4.783765
+Bma - tyramine 1hr - TR1 control.mp4,506c7ab3-5ecc-4fe5-a740-f2da34fb4a66,dl,2.0,4.627041,3.866359,6.545401,4.219863
+Bma - tyramine 1hr - TR3 control.mp4,69dc4e39-72af-451a-be06-66206a4c5b34,dl,1.0,9.081197,5.44038,7.845905,6.191898
+Bma - tyramine 1hr - TR3 control.mp4,69dc4e39-72af-451a-be06-66206a4c5b34,dl,2.0,5.19144,3.421734,4.689321,3.754539
+Bma - tyramine 1hr - TR3 control.mp4,69dc4e39-72af-451a-be06-66206a4c5b34,dl,3.0,7.808241,4.755876,7.682443,5.613568
+Bma - tyramine 1hr - TR3 control.mp4,69dc4e39-72af-451a-be06-66206a4c5b34,dl,4.0,7.979012,5.645599,8.363601,6.060458
+Bma - tyramine 1hr - TR3 control.mp4,69dc4e39-72af-451a-be06-66206a4c5b34,dl,5.0,4.204649,2.351545,2.809414,2.804948
+Bma mf - arecoline 1hr - TR1 control.mp4,5b5d9b6d-dceb-4b60-a218-35585d73bc73,dl,27.0,16.222892,12.486815,13.573739,13.504545
+Bma mf - arecoline 1hr - TR1 control.mp4,5b5d9b6d-dceb-4b60-a218-35585d73bc73,dl,34.0,23.276859,18.270849,13.668834,18.242416
+Bma mf - arecoline 1hr - TR1 control.mp4,5b5d9b6d-dceb-4b60-a218-35585d73bc73,dl,42.0,11.382025,10.213223,11.905713,10.450635
+Bma mf - arecoline 1hr - TR1 control.mp4,5b5d9b6d-dceb-4b60-a218-35585d73bc73,dl,43.0,13.510817,12.75052,16.669929,13.440412
+Bma mf - arecoline 1hr - TR1 control.mp4,5b5d9b6d-dceb-4b60-a218-35585d73bc73,dl,76.0,10.945707,7.679601,13.778819,8.746849
+Bma mf - arecoline 1hr - TR2 control.mp4,c8cea4b3-6ad0-4faf-ba10-15b79c3cc5ec,dl,0.0,5.429588,3.46205,5.25602,4.016421
+Bma mf - arecoline 1hr - TR2 control.mp4,c8cea4b3-6ad0-4faf-ba10-15b79c3cc5ec,dl,1.0,8.233186,5.357983,8.062452,6.129388
+Bma mf - arecoline 1hr - TR2 control.mp4,c8cea4b3-6ad0-4faf-ba10-15b79c3cc5ec,dl,2.0,5.163108,3.29597,6.267922,3.890933
+Bma mf - arecoline 1hr - TR2 control.mp4,c8cea4b3-6ad0-4faf-ba10-15b79c3cc5ec,dl,3.0,7.016809,2.501375,3.557921,3.594101
+Bma mf - arecoline 24hr - TR2 control.mp4,6205df0b-d910-4db8-8720-8c049c4222e2,dl,0.0,10.668247,7.169369,10.462498,7.653125
+Bma mf - arecoline 24hr - TR2 control.mp4,6205df0b-d910-4db8-8720-8c049c4222e2,dl,2.0,9.851838,6.474011,8.986954,7.47334
+Bma mf - arecoline 24hr - TR2 control.mp4,6205df0b-d910-4db8-8720-8c049c4222e2,dl,3.0,7.122205,5.116942,8.700906,5.738814
+Bma mf - arecoline 24hr - TR2 control.mp4,6205df0b-d910-4db8-8720-8c049c4222e2,dl,4.0,11.292323,7.713788,9.357664,8.601636
+Bma mf - arecoline 24hr - TR2 control.mp4,6205df0b-d910-4db8-8720-8c049c4222e2,dl,6.0,9.233728,6.010613,7.396518,6.832144
+Bma mf - arecoline 24hr - TR2 control.mp4,6205df0b-d910-4db8-8720-8c049c4222e2,dl,7.0,14.445263,11.003618,13.430023,11.642769
+Bma mf - arecoline 24hr - TR2 control.mp4,6205df0b-d910-4db8-8720-8c049c4222e2,dl,12.0,21.733368,13.456015,17.302455,15.57658
+Bma mf - atropine 1hr - TR2 control.mp4,5e8680a3-1a91-44ae-a4da-27a46f0cffaa,dl,1.0,9.889079,6.585826,10.031897,7.355563
+Bma mf - atropine 1hr - TR2 control.mp4,5e8680a3-1a91-44ae-a4da-27a46f0cffaa,dl,2.0,15.267167,9.064787,14.555855,10.814461
+Bma mf - atropine 1hr - TR2 control.mp4,5e8680a3-1a91-44ae-a4da-27a46f0cffaa,dl,3.0,7.71281,5.607989,8.603119,6.268377
+Bma mf - atropine 1hr - TR2 control.mp4,5e8680a3-1a91-44ae-a4da-27a46f0cffaa,dl,8.0,8.061767,5.098809,6.393133,5.678798
+Bma mf - atropine 1hr - TR3 control.mp4,ae5552aa-ad4f-4b3e-b0eb-59f426517069,dl,0.0,6.243116,4.839537,6.485849,5.039786
+Bma mf - atropine 1hr - TR3 control.mp4,ae5552aa-ad4f-4b3e-b0eb-59f426517069,dl,1.0,9.617385,6.279643,9.946632,6.997728
+Bma mf - atropine 1hr - TR3 control.mp4,ae5552aa-ad4f-4b3e-b0eb-59f426517069,dl,3.0,5.611984,4.143138,7.238803,4.665281
+Bma mf - atropine 1hr - TR3 control.mp4,ae5552aa-ad4f-4b3e-b0eb-59f426517069,dl,4.0,7.821086,4.077727,4.616162,4.442764
+Bma mf - atropine 1hr - TR3 control.mp4,ae5552aa-ad4f-4b3e-b0eb-59f426517069,dl,5.0,5.919108,3.538939,5.861201,4.164211

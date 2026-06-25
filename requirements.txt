@@ -9,3 +9,5 @@ tqdm
 PyYAML
 imageio-ffmpeg
 ultralytics
+matplotlib
+jupyter
