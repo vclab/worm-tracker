@@ -1,3 +1,0 @@
-video,pipeline,total_unique_ids,id_discontinuity_events,mean_track_length,max_worms_in_any_single_frame
-C:\Users\COCRe\Downloads\dl-worm-tracker\input-vids\Bma - strychnine 1hr - TR1 control.mp4,classical,26,1,326.69,12
-C:\Users\COCRe\Downloads\dl-worm-tracker\input-vids\Bma - strychnine 1hr - TR1 control.mp4,yolo,12,0,524.33,7

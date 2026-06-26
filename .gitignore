@@ -47,3 +47,10 @@ Exported CSV Test/
 
 # --- YOLO weights (downloaded via `make weights`) ---
 weights/
+
+# --- Jupyter checkpoints ---
+.ipynb_checkpoints/
+
+# --- Generated pipeline-analysis artifacts ---
+pipeline-analysis/charts/
+pipeline-analysis/results/
