@@ -103,7 +103,7 @@ function App() {
   // Heartbeat
   useEffect(() => {
     if (API !== "") return;
-    const send = () => fetch(`${API}/api/heartbeat`, { method: "POST" }).catch(() => {});
+    const send = () => fetch(`${API}/api/heartbeat`, { method: "POST" }).catch(() => { });
     send();
     const id = setInterval(send, 5000);
     return () => clearInterval(id);
@@ -114,7 +114,7 @@ function App() {
     fetch(`${API}/api/settings`)
       .then(r => r.ok ? r.json() : Promise.reject(new Error(r.statusText)))
       .then(data => { if (data.restart_pending) setRestartPending(true); })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const syncVideos = useCallback((source, target) => {
@@ -283,9 +283,9 @@ function App() {
       setUsedParams(p);
       if (p) {
         if (p.keypoints_per_worm != null) setKeypoints(p.keypoints_per_worm);
-        if (p.area_threshold     != null) setArea(p.area_threshold);
-        if (p.max_age            != null) setMaxAge(p.max_age);
-        if (p.persistence        != null) setPersistence(p.persistence);
+        if (p.area_threshold != null) setArea(p.area_threshold);
+        if (p.max_age != null) setMaxAge(p.max_age);
+        if (p.persistence != null) setPersistence(p.persistence);
         setPipeline(p.pipeline ?? "classical");
         setConfThreshold(p.conf_threshold ?? 0.25);
       }
@@ -454,7 +454,7 @@ function App() {
           <div className="header-title-block">
             <div className="title-row">
               <span className="title">PARATRACKER</span>
-              <span className="version">v1.1.2</span>
+              <span className="version">v1.1.3</span>
             </div>
             <p className="subtitle">Microfilaria motion analysis</p>
           </div>
@@ -488,293 +488,293 @@ function App() {
         {/* ── Tracker tab ── */}
         {activeTab === "tracker" && (
           <>
-          {/* Centering wrapper */}
-          <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", minHeight: "calc(100vh - 64px)" }}>
-          <div className="card" style={{ position: "relative" }}>
+            {/* Centering wrapper */}
+            <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", minHeight: "calc(100vh - 64px)" }}>
+              <div className="card" style={{ position: "relative" }}>
 
-            {/* Gear icon — opens Settings modal */}
-            <button
-              onClick={() => setSettingsModalOpen(true)}
-              title="Settings"
-              style={{
-                position: "absolute", top: 14, right: 14,
-                background: "none", border: "none", cursor: "pointer",
-                color: "var(--text-muted)", fontSize: "1.1rem",
-                padding: "4px 6px", borderRadius: 6, lineHeight: 1,
-              }}
-            >
-              ⚙
-            </button>
+                {/* Gear icon — opens Settings modal */}
+                <button
+                  onClick={() => setSettingsModalOpen(true)}
+                  title="Settings"
+                  style={{
+                    position: "absolute", top: 14, right: 14,
+                    background: "none", border: "none", cursor: "pointer",
+                    color: "var(--text-muted)", fontSize: "1.1rem",
+                    padding: "4px 6px", borderRadius: 6, lineHeight: 1,
+                  }}
+                >
+                  ⚙
+                </button>
 
-            {restartPending && (
-              <div style={{
-                background: "#1c1108", border: "0.5px solid #d97706", borderRadius: 8,
-                padding: "10px 14px", marginBottom: "1rem",
-                fontSize: "0.82rem", color: "#fbbf24", display: "flex", gap: 8, alignItems: "center",
-              }}>
-                <span>⚠</span>
-                <span>Settings changed — restart the app before submitting new jobs.</span>
-              </div>
-            )}
-
-            {/* Parameters */}
-            {usedParams ? (
-              <div className="used-params">
-                <span className="used-params-label">Analysis parameters</span>
-                <div className="used-params-values">
-                  <span><span className="used-params-key">Keypoints</span>{usedParams.keypoints_per_worm ?? "—"}</span>
-                  <span><span className="used-params-key">Area threshold</span>{usedParams.area_threshold ?? "—"}</span>
-                  <span><span className="used-params-key">Max age</span>{usedParams.max_age ?? "—"}</span>
-                  <span><span className="used-params-key">Persistence</span>{usedParams.persistence ?? "—"}</span>
-                  <span><span className="used-params-key">Tracker</span>{(usedParams.pipeline ?? "classical") === "dl" ? "YOLO Tracker" : "Classical Tracker"}</span>
-                  {usedParams.pipeline === "dl" && (
-                    <span><span className="used-params-key">Conf. threshold</span>{usedParams.conf_threshold ?? "—"}</span>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <section className="form">
-                <div className="field">
-                  <label className="label">Keypoints per worm</label>
-                  <input className="input" type="number" value={keypoints} onChange={e => setKeypoints(Number(e.target.value))} min={1} max={200} />
-                </div>
-                <div className="field">
-                  <label className="label">Area threshold</label>
-                  <input className="input" type="number" value={area} onChange={e => setArea(Number(e.target.value))} min={0} max={100000} />
-                </div>
-                <div className="field">
-                  <label className="label">Max age</label>
-                  <input className="input" type="number" value={maxAge} onChange={e => setMaxAge(Number(e.target.value))} min={0} max={10000} />
-                </div>
-                <div className="field">
-                  <label className="label">Persistence</label>
-                  <input className="input" type="number" value={persistence} onChange={e => setPersistence(Number(e.target.value))} min={1} max={10000} />
-                </div>
-                <div className="field">
-                  <label className="label">Tracker</label>
-                  <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", paddingTop: "0.2rem" }}>
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.9rem" }}>
-                      <input type="radio" value="classical" checked={pipeline === "classical"} onChange={() => setPipeline("classical")} />
-                      Classical Tracker
-                    </label>
-                    <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.9rem" }}>
-                      <input type="radio" value="dl" checked={pipeline === "dl"} onChange={() => setPipeline("dl")} />
-                      YOLO Tracker
-                    </label>
-                  </div>
-                </div>
-                {pipeline === "dl" && (
-                  <div className="field">
-                    <label className="label">Confidence threshold</label>
-                    <input className="input" type="number" value={confThreshold} onChange={e => setConfThreshold(Number(e.target.value))} min={0} max={1} step={0.05} />
+                {restartPending && (
+                  <div style={{
+                    background: "#1c1108", border: "0.5px solid #d97706", borderRadius: 8,
+                    padding: "10px 14px", marginBottom: "1rem",
+                    fontSize: "0.82rem", color: "#fbbf24", display: "flex", gap: 8, alignItems: "center",
+                  }}>
+                    <span>⚠</span>
+                    <span>Settings changed — restart the app before submitting new jobs.</span>
                   </div>
                 )}
-              </section>
-            )}
 
-            {/* File input */}
-            {!processedUrl && (
-              <section>
-                <div className="file-wrap">
-                  <label className="file-btn" htmlFor="file">Select videos</label>
-                  <input
-                    id="file"
-                    ref={fileInputRef}
-                    type="file"
-                    accept="video/*"
-                    multiple
-                    onChange={e => {
-                      const files = e.target.files;
-                      if (files?.length === 1) setFileName(files[0].name);
-                      else if (files?.length > 1) setFileName(`${files.length} files selected`);
-                      else setFileName("");
-                    }}
-                  />
-                  <span className="file-name">{fileName || "Select one or more videos to queue"}</span>
-                </div>
-                <div style={{ marginTop: "0.75rem" }}>
-                  <button
-                    className="btn"
-                    onClick={handleSubmit}
-                    disabled={restartPending}
-                    style={restartPending ? { opacity: 0.4, cursor: "not-allowed" } : {}}
-                  >
-                    Add to queue
-                  </button>
-                  {submitError && (
-                    <div style={{ marginTop: 8, color: "#ef4444", fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 8 }}>
-                      <span>{submitError}</span>
-                      <button onClick={() => setSubmitError(null)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", padding: 0, fontSize: "0.85rem" }}>✕</button>
-                    </div>
-                  )}
-                </div>
-              </section>
-            )}
-
-            {/* Player + actions */}
-            {processedUrl && (
-              <>
-                {!originalUrl && (
-                  <video src={processedUrl} controls style={{ width: "100%", borderRadius: 8, background: "#000", display: "block" }} />
-                )}
-                {originalUrl && (
-                  <>
-                    <div
-                      className="video-compare"
-                      ref={compareContainerRef}
-                      onMouseDown={e => { if (e.target.closest(".compare-slider")) setIsDragging(true); }}
-                      onTouchStart={e => { if (e.target.closest(".compare-slider")) setIsDragging(true); }}
-                    >
-                      <video
-                        className="compare-video compare-original"
-                        ref={originalVideoRef}
-                        src={originalUrl}
-                        style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
-                        onSeeked={() => syncVideos(originalVideoRef.current, trackedVideoRef.current)}
-                        onTimeUpdate={() => {
-                          if (!trackedVideoRef.current?.paused) return;
-                          syncVideos(originalVideoRef.current, trackedVideoRef.current);
-                        }}
-                        muted
-                      />
-                      <video
-                        className="compare-video compare-tracked"
-                        ref={trackedVideoRef}
-                        src={processedUrl}
-                        style={{ clipPath: `inset(0 0 0 ${sliderPos}%)` }}
-                        onPlay={() => setIsPlaying(true)}
-                        onPause={() => setIsPlaying(false)}
-                        onSeeked={() => syncVideos(trackedVideoRef.current, originalVideoRef.current)}
-                        onTimeUpdate={() => {
-                          if (!originalVideoRef.current?.paused) return;
-                          syncVideos(trackedVideoRef.current, originalVideoRef.current);
-                        }}
-                        muted
-                      />
-                      {showHtCorrector && currentJobId && (
-                        <canvas
-                          ref={htCanvasRef}
-                          style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 5 }}
-                        />
+                {/* Parameters */}
+                {usedParams ? (
+                  <div className="used-params">
+                    <span className="used-params-label">Analysis parameters</span>
+                    <div className="used-params-values">
+                      <span><span className="used-params-key">Keypoints</span>{usedParams.keypoints_per_worm ?? "—"}</span>
+                      <span><span className="used-params-key">Area threshold</span>{usedParams.area_threshold ?? "—"}</span>
+                      <span><span className="used-params-key">Max age</span>{usedParams.max_age ?? "—"}</span>
+                      <span><span className="used-params-key">Persistence</span>{usedParams.persistence ?? "—"}</span>
+                      <span><span className="used-params-key">Tracker</span>{(usedParams.pipeline ?? "classical") === "dl" ? "YOLO Tracker" : "Classical Tracker"}</span>
+                      {usedParams.pipeline === "dl" && (
+                        <span><span className="used-params-key">Conf. threshold</span>{usedParams.conf_threshold ?? "—"}</span>
                       )}
-                      <div className="compare-slider" style={{ left: `${sliderPos}%` }}>
-                        <div className="compare-slider-line" />
-                        <div className="compare-slider-handle">
-                          <span className="compare-label compare-label-left">Original</span>
-                          <span className="compare-label compare-label-right">Tracked</span>
+                    </div>
+                  </div>
+                ) : (
+                  <section className="form">
+                    <div className="field">
+                      <label className="label">Keypoints per worm</label>
+                      <input className="input" type="number" value={keypoints} onChange={e => setKeypoints(Number(e.target.value))} min={1} max={200} />
+                    </div>
+                    <div className="field">
+                      <label className="label">Area threshold</label>
+                      <input className="input" type="number" value={area} onChange={e => setArea(Number(e.target.value))} min={0} max={100000} />
+                    </div>
+                    <div className="field">
+                      <label className="label">Max age</label>
+                      <input className="input" type="number" value={maxAge} onChange={e => setMaxAge(Number(e.target.value))} min={0} max={10000} />
+                    </div>
+                    <div className="field">
+                      <label className="label">Persistence</label>
+                      <input className="input" type="number" value={persistence} onChange={e => setPersistence(Number(e.target.value))} min={1} max={10000} />
+                    </div>
+                    <div className="field">
+                      <label className="label">Tracker</label>
+                      <div style={{ display: "flex", gap: "1.25rem", alignItems: "center", paddingTop: "0.2rem" }}>
+                        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.9rem" }}>
+                          <input type="radio" value="classical" checked={pipeline === "classical"} onChange={() => setPipeline("classical")} />
+                          Classical Tracker
+                        </label>
+                        <label style={{ display: "flex", alignItems: "center", gap: "0.4rem", cursor: "pointer", fontSize: "0.9rem" }}>
+                          <input type="radio" value="dl" checked={pipeline === "dl"} onChange={() => setPipeline("dl")} />
+                          YOLO Tracker
+                        </label>
+                      </div>
+                    </div>
+                    {pipeline === "dl" && (
+                      <div className="field">
+                        <label className="label">Confidence threshold</label>
+                        <input className="input" type="number" value={confThreshold} onChange={e => setConfThreshold(Number(e.target.value))} min={0} max={1} step={0.05} />
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                {/* File input */}
+                {!processedUrl && (
+                  <section>
+                    <div className="file-wrap">
+                      <label className="file-btn" htmlFor="file">Select videos</label>
+                      <input
+                        id="file"
+                        ref={fileInputRef}
+                        type="file"
+                        accept="video/*"
+                        multiple
+                        onChange={e => {
+                          const files = e.target.files;
+                          if (files?.length === 1) setFileName(files[0].name);
+                          else if (files?.length > 1) setFileName(`${files.length} files selected`);
+                          else setFileName("");
+                        }}
+                      />
+                      <span className="file-name">{fileName || "Select one or more videos to queue"}</span>
+                    </div>
+                    <div style={{ marginTop: "0.75rem" }}>
+                      <button
+                        className="btn"
+                        onClick={handleSubmit}
+                        disabled={restartPending}
+                        style={restartPending ? { opacity: 0.4, cursor: "not-allowed" } : {}}
+                      >
+                        Add to queue
+                      </button>
+                      {submitError && (
+                        <div style={{ marginTop: 8, color: "#ef4444", fontSize: "0.8rem", display: "flex", alignItems: "center", gap: 8 }}>
+                          <span>{submitError}</span>
+                          <button onClick={() => setSubmitError(null)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", padding: 0, fontSize: "0.85rem" }}>✕</button>
                         </div>
+                      )}
+                    </div>
+                  </section>
+                )}
+
+                {/* Player + actions */}
+                {processedUrl && (
+                  <>
+                    {!originalUrl && (
+                      <video src={processedUrl} controls style={{ width: "100%", borderRadius: 8, background: "#000", display: "block" }} />
+                    )}
+                    {originalUrl && (
+                      <>
+                        <div
+                          className="video-compare"
+                          ref={compareContainerRef}
+                          onMouseDown={e => { if (e.target.closest(".compare-slider")) setIsDragging(true); }}
+                          onTouchStart={e => { if (e.target.closest(".compare-slider")) setIsDragging(true); }}
+                        >
+                          <video
+                            className="compare-video compare-original"
+                            ref={originalVideoRef}
+                            src={originalUrl}
+                            style={{ clipPath: `inset(0 ${100 - sliderPos}% 0 0)` }}
+                            onSeeked={() => syncVideos(originalVideoRef.current, trackedVideoRef.current)}
+                            onTimeUpdate={() => {
+                              if (!trackedVideoRef.current?.paused) return;
+                              syncVideos(originalVideoRef.current, trackedVideoRef.current);
+                            }}
+                            muted
+                          />
+                          <video
+                            className="compare-video compare-tracked"
+                            ref={trackedVideoRef}
+                            src={processedUrl}
+                            style={{ clipPath: `inset(0 0 0 ${sliderPos}%)` }}
+                            onPlay={() => setIsPlaying(true)}
+                            onPause={() => setIsPlaying(false)}
+                            onSeeked={() => syncVideos(trackedVideoRef.current, originalVideoRef.current)}
+                            onTimeUpdate={() => {
+                              if (!originalVideoRef.current?.paused) return;
+                              syncVideos(trackedVideoRef.current, originalVideoRef.current);
+                            }}
+                            muted
+                          />
+                          {showHtCorrector && currentJobId && (
+                            <canvas
+                              ref={htCanvasRef}
+                              style={{ position: "absolute", top: 0, left: 0, width: "100%", height: "100%", pointerEvents: "none", zIndex: 5 }}
+                            />
+                          )}
+                          <div className="compare-slider" style={{ left: `${sliderPos}%` }}>
+                            <div className="compare-slider-line" />
+                            <div className="compare-slider-handle">
+                              <span className="compare-label compare-label-left">Original</span>
+                              <span className="compare-label compare-label-right">Tracked</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="video-controls">
+                          <button
+                            className="control-btn"
+                            onClick={() => {
+                              if (isPlaying) {
+                                trackedVideoRef.current?.pause();
+                                originalVideoRef.current?.pause();
+                              } else {
+                                trackedVideoRef.current?.play();
+                                originalVideoRef.current?.play();
+                              }
+                            }}
+                          >
+                            {isPlaying ? "⏸" : "▶"}
+                          </button>
+                          <input
+                            type="range"
+                            className="control-seek"
+                            min="0" max="100" step="0.1"
+                            defaultValue="0"
+                            ref={seekBarRef}
+                            onChange={e => {
+                              const pct = e.target.value / 100;
+                              if (trackedVideoRef.current) trackedVideoRef.current.currentTime = pct * trackedVideoRef.current.duration;
+                              if (originalVideoRef.current) originalVideoRef.current.currentTime = pct * originalVideoRef.current.duration;
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    <div className="actions">
+                      {regenPending && (
+                        <div style={{ fontSize: "0.8rem", color: "var(--accent-text)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "var(--accent)", animation: "pulse 1.2s infinite" }} />
+                          Regenerating outputs… downloads will be available when complete.
+                        </div>
+                      )}
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                        {packageUrl && (
+                          regenPending
+                            ? <span className="btn" style={{ opacity: 0.4, cursor: "not-allowed", pointerEvents: "none" }}>Download All (ZIP)</span>
+                            : <a className="btn" href={packageUrl} download>Download All (ZIP)</a>
+                        )}
+                        {dataCsvUrl && (
+                          regenPending
+                            ? <span className="btn" style={{ opacity: 0.4, cursor: "not-allowed", pointerEvents: "none" }}>Export CSV</span>
+                            : <a className="btn" href={dataCsvUrl} download>Export CSV</a>
+                        )}
+                        {currentJobId && originalUrl && (
+                          <button
+                            className="btn"
+                            onClick={() => setShowHtCorrector(v => !v)}
+                            style={showHtCorrector ? { background: "var(--accent-bg)", border: "0.5px solid var(--accent)" } : {}}
+                          >
+                            {showHtCorrector ? "Hide H/T Correction" : "Head/Tail Correction"}
+                          </button>
+                        )}
+                        {currentJobId && (
+                          <button className="btn" onClick={() => { setSubmitError(null); setShowRerunDialog(true); }}>
+                            Re-run with new parameters
+                          </button>
+                        )}
+                        <button className="btn" onClick={resetForAnother}>Run on another file</button>
                       </div>
                     </div>
 
-                    <div className="video-controls">
-                      <button
-                        className="control-btn"
-                        onClick={() => {
-                          if (isPlaying) {
-                            trackedVideoRef.current?.pause();
-                            originalVideoRef.current?.pause();
-                          } else {
-                            trackedVideoRef.current?.play();
-                            originalVideoRef.current?.play();
-                          }
-                        }}
-                      >
-                        {isPlaying ? "⏸" : "▶"}
-                      </button>
-                      <input
-                        type="range"
-                        className="control-seek"
-                        min="0" max="100" step="0.1"
-                        defaultValue="0"
-                        ref={seekBarRef}
-                        onChange={e => {
-                          const pct = e.target.value / 100;
-                          if (trackedVideoRef.current) trackedVideoRef.current.currentTime = pct * trackedVideoRef.current.duration;
-                          if (originalVideoRef.current) originalVideoRef.current.currentTime = pct * originalVideoRef.current.duration;
-                        }}
-                      />
+                    {showHtCorrector && currentJobId && originalUrl && (
+                      <ErrorBoundary>
+                        <HeadTailCorrector
+                          jobId={currentJobId}
+                          originalVideoRef={originalVideoRef}
+                          overlayCanvasRef={htCanvasRef}
+                          onMotionStatsUpdated={setMotionStats}
+                          onFlipStarted={() => setRegenPending(true)}
+                          regenPending={regenPending}
+                        />
+                      </ErrorBoundary>
+                    )}
+
+                    <div className="meta">
+                      <span>Input: {fileName || "—"}</span>
+                      <span>Output: {outputFolderName || "—"}</span>
                     </div>
+
+                    {motionStatsLoading && (
+                      <div style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginTop: "0.5rem" }}>
+                        Loading motion analysis…
+                      </div>
+                    )}
+                    {motionStats && motionStats.num_worms === 0 && (
+                      <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem", marginTop: "0.5rem" }}>
+                        No worms were detected in this video — try lowering the area threshold or check that worms are visible in the footage.
+                      </div>
+                    )}
+                    {motionStats && motionStats.num_worms > 0 && (
+                      <ErrorBoundary>
+                        <MotionCharts data={motionStats} />
+                      </ErrorBoundary>
+                    )}
                   </>
                 )}
 
-                <div className="actions">
-                  {regenPending && (
-                    <div style={{ fontSize: "0.8rem", color: "var(--accent-text)", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: "50%", background: "var(--accent)", animation: "pulse 1.2s infinite" }} />
-                      Regenerating outputs… downloads will be available when complete.
-                    </div>
-                  )}
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                    {packageUrl && (
-                      regenPending
-                        ? <span className="btn" style={{ opacity: 0.4, cursor: "not-allowed", pointerEvents: "none" }}>Download All (ZIP)</span>
-                        : <a className="btn" href={packageUrl} download>Download All (ZIP)</a>
-                    )}
-                    {dataCsvUrl && (
-                      regenPending
-                        ? <span className="btn" style={{ opacity: 0.4, cursor: "not-allowed", pointerEvents: "none" }}>Export CSV</span>
-                        : <a className="btn" href={dataCsvUrl} download>Export CSV</a>
-                    )}
-                    {currentJobId && originalUrl && (
-                      <button
-                        className="btn"
-                        onClick={() => setShowHtCorrector(v => !v)}
-                        style={showHtCorrector ? { background: "var(--accent-bg)", border: "0.5px solid var(--accent)" } : {}}
-                      >
-                        {showHtCorrector ? "Hide H/T Correction" : "Head/Tail Correction"}
-                      </button>
-                    )}
-                    {currentJobId && (
-                      <button className="btn" onClick={() => { setSubmitError(null); setShowRerunDialog(true); }}>
-                        Re-run with new parameters
-                      </button>
-                    )}
-                    <button className="btn" onClick={resetForAnother}>Run on another file</button>
-                  </div>
-                </div>
-
-                {showHtCorrector && currentJobId && originalUrl && (
-                  <ErrorBoundary>
-                    <HeadTailCorrector
-                      jobId={currentJobId}
-                      originalVideoRef={originalVideoRef}
-                      overlayCanvasRef={htCanvasRef}
-                      onMotionStatsUpdated={setMotionStats}
-                      onFlipStarted={() => setRegenPending(true)}
-                      regenPending={regenPending}
-                    />
-                  </ErrorBoundary>
-                )}
-
-                <div className="meta">
-                  <span>Input: {fileName || "—"}</span>
-                  <span>Output: {outputFolderName || "—"}</span>
-                </div>
-
-                {motionStatsLoading && (
-                  <div style={{ color: "var(--text-muted)", fontSize: "0.82rem", marginTop: "0.5rem" }}>
-                    Loading motion analysis…
-                  </div>
-                )}
-                {motionStats && motionStats.num_worms === 0 && (
-                  <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem", marginTop: "0.5rem" }}>
-                    No worms were detected in this video — try lowering the area threshold or check that worms are visible in the footage.
-                  </div>
-                )}
-                {motionStats && motionStats.num_worms > 0 && (
-                  <ErrorBoundary>
-                    <MotionCharts data={motionStats} />
-                  </ErrorBoundary>
-                )}
-              </>
-            )}
-
-            <footer className="footer">
-              <span>A collaboration between the <a href="https://www.vclab.ca" target="_blank" rel="noopener noreferrer">Visual Computing Lab</a> and the Forrester Lab, Faculty of Science, Ontario Tech University.</span>
-              <span>Lead developer: <a href="https://ca.linkedin.com/in/aaveg-shangari" target="_blank" rel="noopener noreferrer">Aaveg Shangari</a> — the first version of ParaTracker was completed during his Honours Thesis in the Visual Computing Lab.</span>
-            </footer>
-          </div>
-          </div>{/* end centering wrapper */}
+                <footer className="footer">
+                  <span>A collaboration between the <a href="https://www.vclab.ca" target="_blank" rel="noopener noreferrer">Visual Computing Lab</a> and the Forrester Lab, Faculty of Science, Ontario Tech University.</span>
+                  <span>Lead developer: <a href="https://ca.linkedin.com/in/aaveg-shangari" target="_blank" rel="noopener noreferrer">Aaveg Shangari</a> — the first version of ParaTracker was completed during his Honours Thesis in the Visual Computing Lab.</span>
+                </footer>
+              </div>
+            </div>{/* end centering wrapper */}
           </>
         )}
 
