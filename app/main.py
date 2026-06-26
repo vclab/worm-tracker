@@ -37,12 +37,29 @@ _LARGE_VIDEO_BYTES  = 500 * 1024 ** 2  # 500 MB — file-size fallback trigger
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
-    # Startup is handled at module level (lock + DB init + worker thread).
+    global _lock_fh, _worker_started, _worker
+    # Only the serving process runs lifespan; the reloader's module import does not.
+    # Guard against hypothetical double-invocation within the same process.
+    if not _worker_started:
+        _worker_started = True
+        try:
+            _acquire_outputs_lock()
+            init_db()
+            migrate_existing_outputs()
+        except Exception as _db_exc:
+            logger.critical(
+                "Failed to initialize database at %s: %s — queue worker will not start",
+                DB_PATH, _db_exc,
+            )
+        else:
+            _worker = threading.Thread(target=queue_worker, daemon=True, name="queue-worker")
+            _worker.start()
     yield
-    # Shutdown: explicitly release the outputs-directory lock so the lock file
-    # is not left stale on platforms where the kernel might not release it
-    # immediately (e.g. NFS mounts).
-    global _lock_fh
+    # Shutdown: signal the worker to stop and wait up to 10 s for a clean exit
+    # before releasing the outputs-directory lock.
+    _shutdown_event.set()
+    if _worker is not None and _worker.is_alive():
+        _worker.join(timeout=10)
     if _lock_fh is not None:
         try:
             _lock_fh.close()
@@ -60,6 +77,11 @@ active_jobs_lock = threading.Lock()
 # Per-job locks for NPZ read-modify-write (prevents concurrent flip races)
 _npz_locks: dict[str, threading.Lock] = {}
 _npz_locks_lock = threading.Lock()
+
+# Queue-worker lifecycle state
+_shutdown_event = threading.Event()   # set on lifespan shutdown to stop the worker loop
+_worker_started = False               # guard: only one worker per process
+_worker: threading.Thread | None = None
 
 
 def _get_npz_lock(job_id: str) -> threading.Lock:
@@ -603,7 +625,7 @@ def process_job(job_id: str):
 def queue_worker():
     """Daemon thread: picks up pending jobs one at a time."""
     backoff = 2
-    while True:
+    while not _shutdown_event.is_set():
         try:
             with get_db(readonly=True) as conn:
                 row = conn.execute(
@@ -613,25 +635,13 @@ def queue_worker():
                 backoff = 2  # reset on successful DB access
                 process_job(row["job_id"])
             else:
-                time.sleep(2)
+                _shutdown_event.wait(2)
         except Exception as exc:
             logger.error("Queue worker error: %s", exc, exc_info=True)
-            time.sleep(backoff)
+            _shutdown_event.wait(backoff)
             backoff = min(backoff * 2, 60)
 
 
-try:
-    _acquire_outputs_lock()
-    init_db()
-    migrate_existing_outputs()
-except Exception as _db_exc:
-    logger.critical(
-        "Failed to initialize database at %s: %s — queue worker will not start",
-        DB_PATH, _db_exc,
-    )
-else:
-    _worker = threading.Thread(target=queue_worker, daemon=True)
-    _worker.start()
 
 # ---------------------------------------------------------------------------
 # Browser-presence watchdog (packaged app only)

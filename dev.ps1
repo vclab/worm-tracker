@@ -144,7 +144,13 @@ function Invoke-Run {
         Pop-Location
         if (-not $backend.HasExited) {
             Write-Host "`n==> Stopping backend ..."
-            $backend | Stop-Process -Force
+            try { taskkill /PID $($backend.Id) /T /F 2>$null } catch {}
+        }
+        # Safety net: kill anything still bound to port 8000 after tree kill
+        $lingering = Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue
+        if ($lingering) {
+            Write-Host "==> Killing lingering process on port 8000 (PID $($lingering.OwningProcess)) ..."
+            try { taskkill /PID $($lingering.OwningProcess) /T /F 2>$null } catch {}
         }
     }
 }
