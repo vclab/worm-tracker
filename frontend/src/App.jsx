@@ -11,12 +11,6 @@ import ErrorBoundary from "./ErrorBoundary";
 import MetricsPage from "./MetricsPage";
 import { API } from "./api";
 
-const STAGE_LABELS = {
-  processing: "Analyzing frames",
-  generating: "Generating video",
-  finalizing: "Finalizing",
-};
-
 function App() {
   // Navigation
   const [activeTab, setActiveTab] = useState("tracker");
@@ -368,9 +362,6 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  // Active jobs for the Tracker-page strip
-  const activeJobs = jobs.filter(j => j.status === "pending" || j.status === "processing");
-
   return (
     <div className="shell">
       {/* ── Modals (position: fixed, always in DOM) ── */}
@@ -472,7 +463,7 @@ function App() {
         <div className="sidebar-nav">
           <button
             className={`nav-item${activeTab === "tracker" ? " nav-item--active" : ""}`}
-            onClick={() => setActiveTab("tracker")}
+            onClick={() => { resetForAnother(); setActiveTab("tracker"); }}
           >
             Tracker
           </button>
@@ -808,47 +799,6 @@ function App() {
         )}
 
       </div>
-
-      {/* ── Active jobs strip — fixed bottom, Tracker tab only ── */}
-      {activeTab === "tracker" && activeJobs.length > 0 && (
-        <div style={{
-          position: "fixed", bottom: 0, left: 260, right: 0, zIndex: 200,
-          background: "#0f1115", borderTop: "0.5px solid var(--border)",
-          padding: "7px 24px", display: "flex", flexDirection: "column", gap: 5,
-        }}>
-          {activeJobs.map(job => {
-            const stageLabel = STAGE_LABELS[job.progress_stage] || "Processing";
-            const statusText = job.status === "processing"
-              ? `${stageLabel} — ${job.progress ?? 0}%`
-              : "Pending";
-            const fname = job.original_filename || "Unnamed";
-            const displayName = fname.length > 38 ? fname.slice(0, 38) + "…" : fname;
-            const isProc = job.status === "processing";
-            return (
-              <div key={job.job_id} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: "0.77rem" }}>
-                <span style={{ color: isProc ? "var(--accent-text)" : "#f59e0b", fontSize: 9, flexShrink: 0 }}>●</span>
-                <span style={{ color: "var(--text-primary)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flexShrink: 0 }}>
-                  {displayName}
-                </span>
-                <span style={{ color: isProc ? "var(--accent-text)" : "#f59e0b", flexShrink: 0 }}>
-                  {statusText}
-                </span>
-                {isProc && (
-                  <div style={{ background: "var(--border)", borderRadius: 3, height: 3, width: 56, flexShrink: 0 }}>
-                    <div style={{ background: "var(--accent)", borderRadius: 3, height: 3, width: `${job.progress ?? 0}%`, transition: "width 0.5s" }} />
-                  </div>
-                )}
-                <button
-                  onClick={() => setActiveTab("history")}
-                  style={{ color: "var(--accent-text)", background: "none", border: "none", cursor: "pointer", fontSize: "0.77rem", padding: 0, textDecoration: "underline", fontFamily: "inherit", flexShrink: 0 }}
-                >
-                  History →
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      )}
 
     </div>
   );

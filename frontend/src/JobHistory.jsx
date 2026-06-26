@@ -2,18 +2,18 @@ import { useState } from "react";
 import { API } from "./api";
 
 const STATUS_STYLES = {
-  done:       { color: "#10b981", label: "Done" },
+  done: { color: "#10b981", label: "Done" },
   processing: { color: "#6366f1", label: "Processing" },
-  pending:    { color: "#f59e0b", label: "Pending" },
-  error:      { color: "#ef4444", label: "Error" },
-  cancelled:  { color: "#6b7280", label: "Cancelled" },
+  pending: { color: "#f59e0b", label: "Pending" },
+  error: { color: "#ef4444", label: "Error" },
+  cancelled: { color: "#6b7280", label: "Cancelled" },
 };
 
 const STAGE_LABELS = {
   processing: "Analyzing frames",
   generating: "Generating video",
   finalizing: "Finalizing",
-  done:       "Done",
+  done: "Done",
 };
 
 function formatDate(iso) {
@@ -86,99 +86,99 @@ export default function JobHistory({ jobs, onRefetch, onLoad, currentJobId = nul
           </thead>
           <tbody>
             {jobs.map((job) => {
-                const s = STATUS_STYLES[job.status] || STATUS_STYLES.cancelled;
-                const isActive = job.status === "pending" || job.status === "processing";
-                const isCurrent = job.job_id === currentJobId;
-                let trackerLabel = "—";
-                try {
-                  const p = job.params_json ? JSON.parse(job.params_json) : null;
-                  if (p) trackerLabel = p.pipeline === "dl" ? "YOLO" : "Classical";
-                } catch {}
-                return (
-                  <tr key={job.job_id} style={{ borderBottom: "0.5px solid var(--border)", background: isCurrent ? "rgba(29,158,117,0.07)" : "transparent" }}>
-                    <td style={{ ...td, whiteSpace: "nowrap", color: "var(--text-secondary)", borderLeft: isCurrent ? "3px solid var(--accent)" : "3px solid transparent" }}>
-                      {formatDate(job.created_at)}
-                    </td>
-                    <td style={td} title={job.original_filename || undefined}>
-                      {job.original_filename
-                        ? job.original_filename.length > 40
-                          ? job.original_filename.slice(0, 40) + "…"
-                          : job.original_filename
-                        : "—"}
-                    </td>
-                    <td style={{ ...td, color: "var(--text-secondary)" }}>{trackerLabel}</td>
-                    <td style={td}>
-                      <span style={{ color: s.color, fontWeight: 600, fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                        {s.label}
-                      </span>
-                      {job.status === "processing" && (
-                        <div style={{ marginTop: 4 }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--text-secondary)", marginBottom: 2 }}>
-                            <span>{STAGE_LABELS[job.progress_stage] || job.progress_stage || ""}</span>
-                            <span>{job.progress ?? 0}%</span>
-                          </div>
-                          <div style={{ background: "var(--border)", borderRadius: 3, height: 4, width: 140 }}>
-                            <div style={{ background: "var(--accent)", borderRadius: 3, height: 4, width: `${job.progress ?? 0}%`, transition: "width 0.5s" }} />
-                          </div>
+              const s = STATUS_STYLES[job.status] || STATUS_STYLES.cancelled;
+              const isActive = job.status === "pending" || job.status === "processing";
+              const isCurrent = job.job_id === currentJobId;
+              let trackerLabel = "—";
+              try {
+                const p = job.params_json ? JSON.parse(job.params_json) : null;
+                if (p) trackerLabel = p.pipeline === "dl" ? "YOLO" : "Classical";
+              } catch { }
+              return (
+                <tr key={job.job_id} style={{ borderBottom: "0.5px solid var(--border)", background: isCurrent ? "rgba(29,158,117,0.07)" : "transparent" }}>
+                  <td style={{ ...td, whiteSpace: "nowrap", color: "var(--text-secondary)", borderLeft: isCurrent ? "3px solid var(--accent)" : "3px solid transparent" }}>
+                    {formatDate(job.created_at)}
+                  </td>
+                  <td style={td} title={job.original_filename || undefined}>
+                    {job.original_filename
+                      ? job.original_filename.length > 22
+                        ? job.original_filename.slice(0, 22) + "…"
+                        : job.original_filename
+                      : "—"}
+                  </td>
+                  <td style={{ ...td, color: "var(--text-secondary)" }}>{trackerLabel}</td>
+                  <td style={td}>
+                    <span style={{ color: s.color, fontWeight: 600, fontSize: "0.8rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                      {s.label}
+                    </span>
+                    {job.status === "processing" && (
+                      <div style={{ marginTop: 4 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: "0.72rem", color: "var(--text-secondary)", marginBottom: 2 }}>
+                          <span>{STAGE_LABELS[job.progress_stage] || job.progress_stage || ""}</span>
+                          <span>{job.progress ?? 0}%</span>
                         </div>
-                      )}
-                      {job.error_msg && (
-                        <div style={{ color: "#ef4444", fontSize: "0.75rem", marginTop: 2 }}>
-                          {job.error_msg}
+                        <div style={{ background: "var(--border)", borderRadius: 3, height: 4, width: 140 }}>
+                          <div style={{ background: "var(--accent)", borderRadius: 3, height: 4, width: `${job.progress ?? 0}%`, transition: "width 0.5s" }} />
                         </div>
-                      )}
-                    </td>
-                    <td style={td}>
-                      {job.status === "done" && (
-                        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
-                          {onLoad && (
-                            <button onClick={() => onLoad(job)} style={btnPrimary}>View</button>
-                          )}
-                          {job.regen_pending ? (
-                            <span style={{ fontSize: "0.75rem", color: "var(--accent-text)", fontStyle: "italic" }}>Regenerating…</span>
-                          ) : (
-                            <>
-                              {job.video_path && (
-                                <a href={`${API}${job.video_path}`} download style={linkStyle}>Video</a>
-                              )}
-                              {job.package_path && (
-                                <a href={`${API}${job.package_path}`} download style={linkStyle}>ZIP</a>
-                              )}
-                              {job.data_csv_path && (
-                                <a href={`${API}${job.data_csv_path}`} download style={linkStyle}>CSV</a>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                    <td style={td}>
-                      {isActive ? (
-                        <button onClick={() => handleCancel(job.job_id)} style={btnCancel}>
+                      </div>
+                    )}
+                    {job.error_msg && (
+                      <div style={{ color: "#ef4444", fontSize: "0.75rem", marginTop: 2 }}>
+                        {job.error_msg}
+                      </div>
+                    )}
+                  </td>
+                  <td style={td}>
+                    {job.status === "done" && (
+                      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", alignItems: "center" }}>
+                        {onLoad && (
+                          <button onClick={() => onLoad(job)} style={btnPrimary}>View</button>
+                        )}
+                        {job.regen_pending ? (
+                          <span style={{ fontSize: "0.75rem", color: "var(--accent-text)", fontStyle: "italic" }}>Regenerating…</span>
+                        ) : (
+                          <>
+                            {job.video_path && (
+                              <a href={`${API}${job.video_path}`} download style={linkStyle}>Video</a>
+                            )}
+                            {job.package_path && (
+                              <a href={`${API}${job.package_path}`} download style={linkStyle}>ZIP</a>
+                            )}
+                            {job.data_csv_path && (
+                              <a href={`${API}${job.data_csv_path}`} download style={linkStyle}>CSV</a>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td style={td}>
+                    {isActive ? (
+                      <button onClick={() => handleCancel(job.job_id)} style={btnCancel}>
+                        Cancel
+                      </button>
+                    ) : confirmDeleteId === job.job_id ? (
+                      <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                        <button onClick={() => handleDelete(job.job_id)} style={btnDeleteConfirm}>
+                          Confirm
+                        </button>
+                        <button onClick={() => setConfirmDeleteId(null)} style={btnDelete}>
                           Cancel
                         </button>
-                      ) : confirmDeleteId === job.job_id ? (
-                        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                          <button onClick={() => handleDelete(job.job_id)} style={btnDeleteConfirm}>
-                            Confirm
-                          </button>
-                          <button onClick={() => setConfirmDeleteId(null)} style={btnDelete}>
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <button onClick={() => setConfirmDeleteId(job.job_id)} style={btnDelete}>
-                          Delete
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                      </div>
+                    ) : (
+                      <button onClick={() => setConfirmDeleteId(job.job_id)} style={btnDelete}>
+                        Delete
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
+    </div>
   );
 }
 

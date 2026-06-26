@@ -26,283 +26,122 @@ const TOOLTIP_STYLE = {
   itemStyle:    { color: "#9aa0a6" },
 };
 
-// ── Chart 1: Per-video grouped bar ────────────────────────────────────────────
-function Chart1({ perVideo }) {
-  const pipelines = useMemo(() => new Set(perVideo.map(r => r.pipeline)), [perVideo]);
-  const hasMulti  = pipelines.size > 1;
+// ── Single-video drill-down ───────────────────────────────────────────────────
+const PIPELINE_LABEL = { classical: "Classical", dl: "YOLO" };
+const PIPELINE_COLOR = { classical: CLASS_COLOR, dl: YOLO_COLOR };
 
-  const data = useMemo(() => perVideo.map(r => ({
-    label:    r.filename + (hasMulti ? ` (${r.pipeline === "dl" ? "YOLO" : "Classical"})` : ""),
-    head:     r.head,
-    midbody:  r.midbody,
-    tail:     r.tail,
-    pipeline: r.pipeline,
-  })), [perVideo, hasMulti]);
-
-  const makeCells = (color) => data.map((entry, i) => (
-    <Cell
-      key={i}
-      fill={color}
-      fillOpacity={pipelineOpacity(entry.pipeline)}
-      stroke={color}
-      strokeWidth={pipelineStroke(entry.pipeline)}
-    />
-  ));
-
-  const legendPayload = [
-    { value: "Head",    color: HEAD_COLOR,  type: "square" },
-    { value: "Midbody", color: MID_COLOR,   type: "square" },
-    { value: "Tail",    color: TAIL_COLOR,  type: "square" },
-    ...(hasMulti ? [
-      { value: "Classical (solid)", color: "#9ca3af", type: "square" },
-      { value: "YOLO (light)",      color: "#9ca3af", type: "square" },
-    ] : []),
-  ];
-
-  if (!data.length) return <div style={{ color: "#6b7280", fontSize: 12 }}>No data.</div>;
-
-  return (
-    <ResponsiveContainer width="100%" height={380}>
-      <BarChart data={data} margin={{ top: 50, right: 20, left: 60, bottom: 20 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="#2c3036" />
-        <XAxis
-          dataKey="label"
-          tick={{ fill: "#9ca3af", fontSize: 13 }}
-          tickFormatter={(v) => v.length > 18 ? v.slice(0, 17) + "…" : v}
-          angle={-30}
-          textAnchor="end"
-          interval={0}
-          height={100}
-        />
-        <YAxis
-          tick={{ fill: "#9ca3af", fontSize: 13 }}
-          label={{ value: "Avg motion (px/frame)", angle: -90, position: "insideLeft", fill: "#6b7280", fontSize: 14, dx: -2 }}
-        />
-        <Tooltip {...TOOLTIP_STYLE} />
-        <Legend payload={legendPayload} verticalAlign="top" wrapperStyle={{ fontSize: 11, paddingBottom: 6 }} />
-        <Bar dataKey="head"    name="Head"    fill={HEAD_COLOR}>{makeCells(HEAD_COLOR)}</Bar>
-        <Bar dataKey="midbody" name="Midbody" fill={MID_COLOR}> {makeCells(MID_COLOR)}</Bar>
-        <Bar dataKey="tail"    name="Tail"    fill={TAIL_COLOR}>{makeCells(TAIL_COLOR)}</Bar>
-      </BarChart>
-    </ResponsiveContainer>
+function SingleVideoChart({ perWorm, perVideo }) {
+  // Derive which pipelines actually have data so we never default to an empty one.
+  const availablePipelines = useMemo(
+    () => new Set(perVideo.map(r => r.pipeline)),
+    [perVideo],
   );
-}
 
-// ── Chart 2: Box + strip (custom SVG) ─────────────────────────────────────────
-function boxStats(vals) {
-  if (!vals.length) return null;
-  const s = [...vals].sort((a, b) => a - b);
-  const n = s.length;
-  const q1  = s[Math.max(0, Math.floor(n * 0.25))];
-  const q3  = s[Math.min(n - 1, Math.floor(n * 0.75))];
-  const med = n % 2 === 1 ? s[Math.floor(n / 2)] : (s[n / 2 - 1] + s[n / 2]) / 2;
-  const iqr = q3 - q1;
-  const lo  = Math.max(s[0],     q1 - 1.5 * iqr);
-  const hi  = Math.min(s[n - 1], q3 + 1.5 * iqr);
-  return { q1, q3, med, lo, hi };
-}
-
-function jitter(seed, range) {
-  const x = Math.abs(Math.sin(seed * 9301 + 49297) * 233280);
-  return (x % 1 - 0.5) * range;
-}
-
-function Chart2({ perWorm, perVideo }) {
-  const videoOrder = useMemo(() => {
-    const seen = new Set();
-    const out  = [];
-    for (const r of perVideo) {
-      if (!seen.has(r.filename)) { seen.add(r.filename); out.push(r.filename); }
-    }
-    return out;
-  }, [perVideo]);
-
-  const groups = useMemo(() => {
-    const g = {};
-    for (const w of perWorm) {
-      const key = `${w.filename}|||${w.pipeline}`;
-      if (!g[key]) g[key] = { filename: w.filename, pipeline: w.pipeline, values: [] };
-      g[key].values.push(w.overall);
-    }
-    return g;
-  }, [perWorm]);
-
-  const perFilenameCount = useMemo(() => {
-    const c = {};
-    for (const { filename } of Object.values(groups)) c[filename] = (c[filename] || 0) + 1;
-    return c;
-  }, [groups]);
-
-  const n   = videoOrder.length;
-  const SVW = Math.max(540, n * 100);
-  const SVH = 360;
-  const ML = 60, MR = 24, MT = 16, MB = 110;
-  const IW  = SVW - ML - MR;
-  const IH  = SVH - MT - MB;
-
-  const allY   = perWorm.map(w => w.overall);
-  const dMin   = Math.min(...allY);
-  const dMax   = Math.max(...allY);
-  const pad    = Math.max((dMax - dMin) * 0.15, 1);
-  const yLo    = dMin - pad;
-  const yHi    = dMax + pad;
-  const xStep  = IW / n;
-  const xPos   = (i)  => ML + xStep * i + xStep / 2;
-  const yPos   = (v)  => MT + IH * (1 - (v - yLo) / (yHi - yLo));
-
-  const yTickVals = Array.from({ length: 6 }, (_, i) => yLo + (yHi - yLo) * i / 5);
-
-  const boxes = Object.entries(groups).map(([key, grp]) => {
-    const vi  = videoOrder.indexOf(grp.filename);
-    if (vi === -1) return null;
-    const isMixed = perFilenameCount[grp.filename] > 1;
-    const off  = isMixed ? (grp.pipeline === "dl" ? 14 : -14) : 0;
-    const cx   = xPos(vi) + off;
-    const col  = grp.pipeline === "dl" ? YOLO_COLOR : CLASS_COLOR;
-    const st   = boxStats(grp.values);
-    const bw   = 18;
-    return (
-      <g key={key}>
-        <line x1={cx} y1={yPos(st.hi)} x2={cx}      y2={yPos(st.lo)} stroke={col} strokeWidth={1.2} opacity={0.55} />
-        <line x1={cx - 4} y1={yPos(st.hi)} x2={cx + 4} y2={yPos(st.hi)} stroke={col} strokeWidth={1.2} opacity={0.55} />
-        <line x1={cx - 4} y1={yPos(st.lo)} x2={cx + 4} y2={yPos(st.lo)} stroke={col} strokeWidth={1.2} opacity={0.55} />
-        <rect
-          x={cx - bw / 2} y={yPos(st.q3)}
-          width={bw} height={Math.max(1, yPos(st.q1) - yPos(st.q3))}
-          fill={col} fillOpacity={0.2} stroke={col} strokeWidth={1}
-        />
-        <line x1={cx - bw / 2} y1={yPos(st.med)} x2={cx + bw / 2} y2={yPos(st.med)} stroke={col} strokeWidth={2} />
-        {grp.values.map((v, i) => (
-          <circle
-            key={i}
-            cx={cx + jitter(i + vi * 37 + (grp.pipeline === "dl" ? 999 : 0), 11)}
-            cy={yPos(v)}
-            r={3}
-            fill={col}
-            opacity={0.55}
-          />
-        ))}
-      </g>
-    );
-  }).filter(Boolean);
-
-  if (!perWorm.length) return <div style={{ color: "#6b7280", fontSize: 12 }}>No data.</div>;
-
-  return (
-    <div style={{ overflowX: "auto" }}>
-      <svg width={SVW} height={SVH} style={{ fontFamily: "inherit", display: "block" }}>
-        {/* grid + y-axis */}
-        <line x1={ML} y1={MT} x2={ML} y2={MT + IH} stroke="#2c3036" />
-        {yTickVals.map((v, i) => (
-          <g key={i}>
-            <line x1={ML - 4} y1={yPos(v)} x2={ML}       y2={yPos(v)} stroke="#2c3036" />
-            <line x1={ML}     y1={yPos(v)} x2={ML + IW}   y2={yPos(v)} stroke="#2c3036" />
-            <text x={ML - 8} y={yPos(v)} textAnchor="end" dominantBaseline="middle" fill="#9aa0a6" fontSize={13}>
-              {v.toFixed(1)}
-            </text>
-          </g>
-        ))}
-        {/* x-axis */}
-        <line x1={ML} y1={MT + IH} x2={ML + IW} y2={MT + IH} stroke="#2c3036" />
-        {videoOrder.map((vid, i) => (
-          <g key={i} transform={`translate(${xPos(i)},${MT + IH + 4})`}>
-            <title>{vid}</title>
-            <text transform="rotate(-30)" textAnchor="end" fill="#9aa0a6" fontSize={13}>
-              {shorten(vid, 18)}
-            </text>
-          </g>
-        ))}
-        {/* axis label */}
-        <text
-          transform={`translate(14,${MT + IH / 2}) rotate(-90)`}
-          textAnchor="middle" fill="#6b7178" fontSize={14}
-        >
-          Overall motion (px/frame)
-        </text>
-        {/* boxes + strips */}
-        {boxes}
-        {/* legend */}
-        <g transform={`translate(${ML + IW - 106},${MT + 4})`}>
-          <rect x={0} y={0}  width={10} height={10} fill={CLASS_COLOR} opacity={0.85} />
-          <text x={14} y={9}  fill="#9aa0a6" fontSize={10}>Classical</text>
-          <rect x={0} y={16} width={10} height={10} fill={YOLO_COLOR}  opacity={0.85} />
-          <text x={14} y={25} fill="#9aa0a6" fontSize={10}>YOLO (dl)</text>
-        </g>
-      </svg>
-    </div>
+  const [selectedPipeline, setSelectedPipeline] = useState(() =>
+    availablePipelines.has("dl") ? "dl" : "classical"
   );
-}
 
-// ── Chart 3: Single-video drill-down ─────────────────────────────────────────
-function Chart3({ perWorm, perVideo }) {
-  const videos = useMemo(() => {
+  const filteredVideos = useMemo(() => {
     const seen = new Set();
-    return perVideo.filter(r => { const k = r.filename; if (seen.has(k)) return false; seen.add(k); return true; }).map(r => r.filename);
-  }, [perVideo]);
+    return perVideo
+      .filter(r => r.pipeline === selectedPipeline)
+      .filter(r => { const k = r.filename; if (seen.has(k)) return false; seen.add(k); return true; })
+      .map(r => r.filename);
+  }, [perVideo, selectedPipeline]);
 
-  const [selected, setSelected] = useState(() => videos[0] ?? "");
+  const [selected, setSelected] = useState(() => filteredVideos[0] ?? "");
 
+  // When pipeline changes, filteredVideos changes — reset selected to first in new list.
   useEffect(() => {
-    if (videos.length && !videos.includes(selected)) setSelected(videos[0]);
-  }, [videos]);  // eslint-disable-line react-hooks/exhaustive-deps
+    if (filteredVideos.length && !filteredVideos.includes(selected)) {
+      setSelected(filteredVideos[0]);
+    } else if (!filteredVideos.length) {
+      setSelected("");
+    }
+  }, [filteredVideos]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const drillData = useMemo(() => {
+    if (!selected) return [];
     return perWorm
-      .filter(w => w.filename === selected)
+      .filter(w => w.filename === selected && w.pipeline === selectedPipeline)
       .sort((a, b) => a.worm_id - b.worm_id)
       .map(w => ({
-        worm:     `W${Math.round(w.worm_id)}`,
-        head:     w.head,
-        midbody:  w.midbody,
-        tail:     w.tail,
-        pipeline: w.pipeline,
+        worm:    `W${Math.round(w.worm_id)}`,
+        head:    w.head,
+        midbody: w.midbody,
+        tail:    w.tail,
       }));
-  }, [perWorm, selected]);
+  }, [perWorm, selected, selectedPipeline]);
 
-  const pipeline = drillData[0]?.pipeline ?? "";
+  const accentColor = PIPELINE_COLOR[selectedPipeline] ?? CLASS_COLOR;
+
+  console.log("[SingleVideoChart] selectedPipeline:", selectedPipeline, "| filteredVideos.length:", filteredVideos.length);
 
   return (
     <div style={{ width: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-        <select
-          value={selected}
-          onChange={e => setSelected(e.target.value)}
-          style={{
-            background: "var(--bg)", color: "var(--text-primary)",
-            border: "0.5px solid var(--border)", borderRadius: 8,
-            padding: "6px 10px", fontSize: 12, cursor: "pointer",
-          }}
-        >
-          {videos.map(v => <option key={v} value={v}>{shorten(v, 40)}</option>)}
-        </select>
-        {pipeline && (
-          <span style={{ fontSize: 11, color: "#6b7280" }}>
-            pipeline: {pipeline === "dl" ? "YOLO" : "Classical"}
-          </span>
-        )}
+      {/* Pipeline toggle */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+        {["classical", "dl"].map(pl => {
+          const active = pl === selectedPipeline;
+          const color  = PIPELINE_COLOR[pl];
+          return (
+            <button
+              key={pl}
+              onClick={() => setSelectedPipeline(pl)}
+              style={{
+                padding: "4px 14px", fontSize: 12, borderRadius: 6, cursor: "pointer",
+                border: `0.5px solid ${active ? color : "var(--border)"}`,
+                background: active ? `${color}26` : "transparent",
+                color: active ? color : "var(--text-muted)",
+              }}
+            >
+              {PIPELINE_LABEL[pl]}
+            </button>
+          );
+        })}
       </div>
-      {drillData.length === 0 ? (
-        <div style={{ color: "#6b7280", fontSize: 12 }}>No worm data for this video.</div>
+
+      {filteredVideos.length === 0 ? (
+        <div style={{ color: "#6b7280", fontSize: 12 }}>No videos for this pipeline.</div>
       ) : (
-        <ResponsiveContainer width="100%" height={380}>
-          <BarChart data={drillData} margin={{ top: 50, right: 20, left: 60, bottom: 50 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2c3036" />
-            <XAxis
-              dataKey="worm"
-              tick={{ fill: "#9ca3af", fontSize: 13 }}
-              label={{ value: "Worm ID", position: "insideBottom", fill: "#6b7280", fontSize: 14, dy: 18 }}
-            />
-            <YAxis
-              tick={{ fill: "#9ca3af", fontSize: 13 }}
-              label={{ value: "Motion (px/frame)", angle: -90, position: "insideLeft", fill: "#6b7280", fontSize: 14, dx: -2 }}
-            />
-            <Tooltip {...TOOLTIP_STYLE} />
-            <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11, paddingBottom: 6 }} />
-            <Bar dataKey="head"    name="Head"    fill={HEAD_COLOR}  fillOpacity={0.85} />
-            <Bar dataKey="midbody" name="Midbody" fill={MID_COLOR}   fillOpacity={0.85} />
-            <Bar dataKey="tail"    name="Tail"    fill={TAIL_COLOR}  fillOpacity={0.85} />
-          </BarChart>
-        </ResponsiveContainer>
+        <>
+          <div style={{ marginBottom: 10 }}>
+            <select
+              value={selected}
+              onChange={e => setSelected(e.target.value)}
+              style={{
+                background: "var(--bg)", color: "var(--text-primary)",
+                border: `0.5px solid ${accentColor}`, borderRadius: 8,
+                padding: "6px 10px", fontSize: 12, cursor: "pointer",
+              }}
+            >
+              {filteredVideos.map(v => <option key={v} value={v}>{shorten(v, 40)}</option>)}
+            </select>
+          </div>
+          {drillData.length === 0 ? (
+            <div style={{ color: "#6b7280", fontSize: 12 }}>No worm data for this video.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={380}>
+              <BarChart data={drillData} margin={{ top: 50, right: 20, left: 60, bottom: 50 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#2c3036" />
+                <XAxis
+                  dataKey="worm"
+                  tick={{ fill: "#9ca3af", fontSize: 13 }}
+                  label={{ value: "Worm ID", position: "insideBottom", fill: "#6b7280", fontSize: 14, dy: 18 }}
+                />
+                <YAxis
+                  tick={{ fill: "#9ca3af", fontSize: 13 }}
+                  label={{ value: "Motion (px/frame)", angle: -90, position: "insideLeft", fill: "#6b7280", fontSize: 14, dx: -2 }}
+                />
+                <Tooltip {...TOOLTIP_STYLE} />
+                <Legend verticalAlign="top" wrapperStyle={{ fontSize: 11, paddingBottom: 6 }} />
+                <Bar dataKey="head"    name="Head"    fill={HEAD_COLOR}  fillOpacity={0.85} />
+                <Bar dataKey="midbody" name="Midbody" fill={MID_COLOR}   fillOpacity={0.85} />
+                <Bar dataKey="tail"    name="Tail"    fill={TAIL_COLOR}  fillOpacity={0.85} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </>
       )}
     </div>
   );
@@ -471,48 +310,18 @@ export default function MetricsPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
 
-      {/* ── Section 1: Per-video charts ── */}
-      <div className="card card--wide">
-        <h2 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 600, color: "#e5e7eb" }}>
-          Per-video analysis
-        </h2>
-        <p style={{ margin: "0 0 22px", fontSize: 12, color: "#6b7280" }}>
-          Solid bars = Classical pipeline · Semi-transparent with border = YOLO (dl) pipeline
-        </p>
-
-        {/* Chart 1 */}
-        <div style={{ marginBottom: 28 }}>
-          <h3 style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600, color: "#d1d5db" }}>
-            Average motion by body region
-          </h3>
-          <Chart1 perVideo={data.per_video} />
-        </div>
-
-        {/* Chart 2 */}
-        <div style={{ marginBottom: 28 }}>
-          <h3 style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600, color: "#d1d5db" }}>
-            Per-worm overall motion distribution (box + strip)
-          </h3>
-          <Chart2 perWorm={data.per_worm} perVideo={data.per_video} />
-        </div>
-
-        {/* Chart 3 */}
-        <div style={{ width: "100%" }}>
-          <h3 style={{ margin: "0 0 6px", fontSize: 13, fontWeight: 600, color: "#d1d5db" }}>
-            Single-video drill-down
-          </h3>
-          <Chart3 perWorm={data.per_worm} perVideo={data.per_video} />
-        </div>
-      </div>
-
-      {/* ── Section 2: Condition comparison ── */}
+      {/* ── Section 1: Condition comparison ── */}
       <div className="card card--wide">
         <h2 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 600, color: "#e5e7eb" }}>
           Condition comparison
         </h2>
         <p style={{ margin: "0 0 16px", fontSize: 12, color: "#6b7280" }}>
-          Filter by keyword to build a checked list, label the group, and add it.
-          Repeat for each condition, then compute. Pipelines are never blended.
+          Group your videos by experimental condition to compare worm motion across groups.
+          Type a keyword to find matching videos, confirm which ones belong in the group, label it,
+          then add more groups and compute. The chart shows each group's average head, midbody, and
+          tail motion. The error bars show how much individual worms varied within the group — short
+          bars mean the worms moved similarly, long bars mean they were spread out — and n is the
+          number of worms in each group.
         </p>
 
         {/* Keyword filter */}
@@ -667,14 +476,9 @@ export default function MetricsPage() {
 
         {cmpResult && cmpResult.results.length > 0 && (
           <div style={{ marginTop: 16, width: "100%" }}>
-            <h3 style={{ margin: "0 0 4px", fontSize: 13, fontWeight: 600, color: "#d1d5db" }}>
+            <h3 style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 600, color: "#d1d5db" }}>
               Comparison results
             </h3>
-            <p style={{ margin: "0 0 12px", fontSize: 11, color: "#6b7280" }}>
-              Error bars = ±1 std across worms · n = worm count per group/pipeline
-              {new Set(cmpResult.results.map(r => r.pipeline)).size > 1 &&
-                " · Solid = Classical · Semi-transparent = YOLO"}
-            </p>
             <ComparisonChart results={cmpResult.results} />
           </div>
         )}
@@ -685,6 +489,19 @@ export default function MetricsPage() {
           </div>
         )}
       </div>
+
+      {/* ── Section 2: Single video analysis ── */}
+      <div className="card card--wide">
+        <h2 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 600, color: "#e5e7eb" }}>
+          Single video analysis
+        </h2>
+        <p style={{ margin: "0 0 16px", fontSize: 12, color: "#6b7280" }}>
+          Pick one video to see its worms' motion broken down by body region. Each group of bars is one worm,
+          showing how much its head, midbody, and tail moved on average (in pixels per frame).
+        </p>
+        <SingleVideoChart perWorm={data.per_worm} perVideo={data.per_video} />
+      </div>
+
     </div>
   );
 }
