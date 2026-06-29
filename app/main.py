@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager, contextmanager
@@ -1437,6 +1437,72 @@ def compare_groups(body: _CompareIn):
             results.append(row)
 
     return {"results": results}
+
+
+@app.post("/api/export/comparison")
+async def export_comparison(
+    chart_png:         UploadFile = File(...),
+    chart_svg:         UploadFile = File(...),
+    group_summary_csv: str        = Form(...),
+    per_worm_csv:      str        = Form(...),
+):
+    """Zip frontend-assembled chart images and CSVs and stream back as a download."""
+    import io
+    png_data = await chart_png.read()
+    svg_data = await chart_svg.read()
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("comparison_chart.png", png_data)
+        zf.writestr("comparison_chart.svg", svg_data)
+        zf.writestr("group_summary.csv",    group_summary_csv)
+        zf.writestr("per_worm.csv",         per_worm_csv)
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="comparison_export.zip"'},
+    )
+
+
+@app.post("/api/export/single/{job_id}")
+async def export_single(
+    job_id:    str,
+    chart_png: UploadFile = File(...),
+    chart_svg: UploadFile = File(...),
+):
+    """Zip frontend chart images with the five per-job files already on disk and stream back."""
+    import io
+    if not _UUID_RE.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+
+    job_dir = OUTPUTS / job_id
+    if not job_dir.exists():
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    png_data = await chart_png.read()
+    svg_data = await chart_svg.read()
+
+    # Collect the five per-job file types; include what exists, skip what's missing.
+    on_disk: list[Path] = []
+    for pattern in ("*_summary.csv", "*_timeseries.csv", "*_motion_stats.json",
+                    "*_metadata.yaml", "*_keypoints.npz"):
+        matches = list(job_dir.glob(f"**/{pattern}"))
+        if matches:
+            on_disk.append(matches[0])
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("drilldown_chart.png", png_data)
+        zf.writestr("drilldown_chart.svg", svg_data)
+        for f in on_disk:
+            zf.write(f, arcname=f.name)
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{job_id}_export.zip"'},
+    )
 
 
 def _find_frontend_dist() -> Path | None:

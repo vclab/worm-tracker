@@ -1,9 +1,10 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, forwardRef, useImperativeHandle } from "react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, Cell, ErrorBar,
 } from "recharts";
 import { API } from "./api";
+import { exportChartAssets, toCsvRow } from "./chartExport";
 
 const HEAD_COLOR  = "#e74c3c";
 const MID_COLOR   = "#3498db";
@@ -30,7 +31,7 @@ const TOOLTIP_STYLE = {
 const PIPELINE_LABEL = { classical: "Classical", dl: "YOLO" };
 const PIPELINE_COLOR = { classical: CLASS_COLOR, dl: YOLO_COLOR };
 
-function SingleVideoChart({ perWorm, perVideo }) {
+const SingleVideoChart = forwardRef(function SingleVideoChart({ perWorm, perVideo }, ref) {
   // Derive which pipelines actually have data so we never default to an empty one.
   const availablePipelines = useMemo(
     () => new Set(perVideo.map(r => r.pipeline)),
@@ -75,10 +76,20 @@ function SingleVideoChart({ perWorm, perVideo }) {
 
   const accentColor = PIPELINE_COLOR[selectedPipeline] ?? CLASS_COLOR;
 
+  // Internal ref for the chart container so the export handler can find the SVG.
+  const containerRef = useRef(null);
+
+  // Expose current selection state and the chart DOM node to MetricsPage.
+  useImperativeHandle(ref, () => ({
+    getSelected:         () => selected,
+    getSelectedPipeline: () => selectedPipeline,
+    getChartContainer:   () => containerRef.current,
+  }), [selected, selectedPipeline]);
+
   console.log("[SingleVideoChart] selectedPipeline:", selectedPipeline, "| filteredVideos.length:", filteredVideos.length);
 
   return (
-    <div style={{ width: "100%" }}>
+    <div ref={containerRef} style={{ width: "100%" }}>
       {/* Pipeline toggle */}
       <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
         {["classical", "dl"].map(pl => {
@@ -145,7 +156,7 @@ function SingleVideoChart({ perWorm, perVideo }) {
       )}
     </div>
   );
-}
+});
 
 // ── Comparison chart ──────────────────────────────────────────────────────────
 function ComparisonChart({ results }) {
@@ -210,6 +221,26 @@ function ComparisonChart({ results }) {
   );
 }
 
+// ── Shared export button style ────────────────────────────────────────────────
+function ExportButton({ onClick, disabled, children }) {
+  return (
+    <button
+      className="btn"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        fontSize: 12,
+        padding: "5px 14px",
+        color: disabled ? "var(--text-muted)" : "var(--accent-text)",
+        borderColor: disabled ? "var(--border)" : "rgba(29,158,117,0.35)",
+        opacity: disabled ? 0.6 : 1,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
 // ── Main MetricsPage ──────────────────────────────────────────────────────────
 export default function MetricsPage() {
   const [data,         setData]         = useState(null);
@@ -224,6 +255,14 @@ export default function MetricsPage() {
   const [cmpResult,    setCmpResult]    = useState(null);
   const [comparing,    setComparing]    = useState(false);
   const [cmpError,     setCmpError]     = useState(null);
+
+  // Export state
+  const [exportingCmp,    setExportingCmp]    = useState(false);
+  const [exportingSingle, setExportingSingle] = useState(false);
+
+  // Chart container refs
+  const cmpChartRef    = useRef(null);
+  const singleChartRef = useRef(null);
 
   useEffect(() => {
     fetch(`${API}/api/aggregate`)
@@ -288,6 +327,103 @@ export default function MetricsPage() {
       setCmpError(e.message);
     } finally {
       setComparing(false);
+    }
+  };
+
+  // ── Export: Condition comparison ──────────────────────────────────────────
+  const exportComparison = async () => {
+    if (!cmpChartRef.current || !cmpResult) return;
+    setExportingCmp(true);
+    try {
+      const { svgBlob, pngBlob } = await exportChartAssets(cmpChartRef);
+
+      // Group summary CSV — one row per group × pipeline from the comparison result.
+      const summaryRows = [
+        toCsvRow(["group", "pipeline", "n",
+                  "head_mean", "head_std", "midbody_mean", "midbody_std",
+                  "tail_mean", "tail_std", "overall_mean", "overall_std"]),
+      ];
+      for (const r of cmpResult.results) {
+        summaryRows.push(toCsvRow([
+          r.group, r.pipeline, r.n,
+          r.head_mean,    r.head_std,
+          r.midbody_mean, r.midbody_std,
+          r.tail_mean,    r.tail_std,
+          r.overall_mean, r.overall_std,
+        ]));
+      }
+      const groupSummaryCsv = summaryRows.join("\n");
+
+      // Per-worm CSV — data.per_worm joined to group labels via job_id.
+      // Build job_id → group label map from the groups array; a job_id that
+      // appears in multiple groups uses the last one (groups should be disjoint).
+      const jobToGroup = {};
+      for (const g of groups) {
+        for (const jid of g.job_ids) {
+          jobToGroup[jid] = g.label;
+        }
+      }
+      const perWormRows = [
+        toCsvRow(["group", "filename", "pipeline", "worm_id", "head", "midbody", "tail", "overall"]),
+      ];
+      for (const w of data.per_worm) {
+        const grp = jobToGroup[w.job_id];
+        if (!grp) continue; // skip worms not in any comparison group
+        perWormRows.push(toCsvRow([grp, w.filename, w.pipeline, w.worm_id,
+                                   w.head, w.midbody, w.tail, w.overall]));
+      }
+      const perWormCsv = perWormRows.join("\n");
+
+      const fd = new FormData();
+      fd.append("chart_png",        pngBlob,        "comparison_chart.png");
+      fd.append("chart_svg",        svgBlob,        "comparison_chart.svg");
+      fd.append("group_summary_csv", groupSummaryCsv);
+      fd.append("per_worm_csv",      perWormCsv);
+
+      const res = await fetch(`${API}/api/export/comparison`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+
+      triggerDownload(await res.blob(), "comparison_export.zip");
+    } catch (e) {
+      console.error("Comparison export failed:", e);
+    } finally {
+      setExportingCmp(false);
+    }
+  };
+
+  // ── Export: Single video ──────────────────────────────────────────────────
+  const exportSingle = async () => {
+    const chartContainer   = singleChartRef.current?.getChartContainer();
+    const selectedFile     = singleChartRef.current?.getSelected();
+    const selectedPipeline = singleChartRef.current?.getSelectedPipeline();
+    if (!chartContainer || !selectedFile) return;
+
+    // Resolve job_id from per_video — same join the backend used to build the table.
+    const match = data.per_video.find(
+      r => r.filename === selectedFile && r.pipeline === selectedPipeline
+    );
+    if (!match) {
+      console.error("exportSingle: could not find job_id for", selectedFile, selectedPipeline);
+      return;
+    }
+
+    setExportingSingle(true);
+    try {
+      const { svgBlob, pngBlob } = await exportChartAssets({ current: chartContainer });
+
+      const fd = new FormData();
+      fd.append("chart_png", pngBlob, "drilldown_chart.png");
+      fd.append("chart_svg", svgBlob, "drilldown_chart.svg");
+
+      const res = await fetch(`${API}/api/export/single/${match.job_id}`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+
+      const stem = selectedFile.replace(/\.[^.]+$/, "");
+      triggerDownload(await res.blob(), `${stem}_export.zip`);
+    } catch (e) {
+      console.error("Single video export failed:", e);
+    } finally {
+      setExportingSingle(false);
     }
   };
 
@@ -475,10 +611,15 @@ export default function MetricsPage() {
         )}
 
         {cmpResult && cmpResult.results.length > 0 && (
-          <div style={{ marginTop: 16, width: "100%" }}>
-            <h3 style={{ margin: "0 0 12px", fontSize: 13, fontWeight: 600, color: "#d1d5db" }}>
-              Comparison results
-            </h3>
+          <div ref={cmpChartRef} style={{ marginTop: 16, width: "100%" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#d1d5db" }}>
+                Comparison results
+              </h3>
+              <ExportButton onClick={exportComparison} disabled={exportingCmp}>
+                {exportingCmp ? "Exporting…" : "Export ZIP"}
+              </ExportButton>
+            </div>
             <ComparisonChart results={cmpResult.results} />
           </div>
         )}
@@ -499,9 +640,29 @@ export default function MetricsPage() {
           Pick one video to see its worms' motion broken down by body region. Each group of bars is one worm,
           showing how much its head, midbody, and tail moved on average (in pixels per frame).
         </p>
-        <SingleVideoChart perWorm={data.per_worm} perVideo={data.per_video} />
+        <SingleVideoChart ref={singleChartRef} perWorm={data.per_worm} perVideo={data.per_video} />
+        {data.per_video.length > 0 && (
+          <div style={{ marginTop: 16, display: "flex", justifyContent: "flex-end" }}>
+            <ExportButton onClick={exportSingle} disabled={exportingSingle}>
+              {exportingSingle ? "Exporting…" : "Export ZIP"}
+            </ExportButton>
+          </div>
+        )}
       </div>
 
     </div>
   );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a   = document.createElement("a");
+  a.href     = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
