@@ -362,8 +362,33 @@ function App() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const activeJobCount = jobs.filter(j => j.status === "processing" || j.status === "pending").length;
+
   return (
     <div className="shell">
+      {/* ── Processing indicator (Tracker tab only) ── */}
+      {activeTab === "tracker" && activeJobCount > 0 && (
+        <button
+          onClick={() => setActiveTab("history")}
+          style={{
+            position: "fixed", bottom: 24, right: 24, zIndex: 50,
+            display: "flex", alignItems: "center", gap: 8,
+            background: "var(--surface)", border: "0.5px solid var(--accent)",
+            borderRadius: 999, padding: "7px 14px",
+            fontSize: "0.8rem", color: "var(--accent-text)",
+            cursor: "pointer", fontFamily: "inherit",
+            boxShadow: "0 4px 16px rgba(0,0,0,0.4)",
+          }}
+        >
+          <span style={{
+            width: 8, height: 8, borderRadius: "50%",
+            background: "var(--accent)", flexShrink: 0,
+            animation: "pulse 1.2s infinite",
+          }} />
+          {activeJobCount} {activeJobCount === 1 ? "video" : "videos"} processing
+        </button>
+      )}
+
       {/* ── Modals (position: fixed, always in DOM) ── */}
       {showRerunDialog && (
         <RerunDialog
