@@ -40,6 +40,8 @@ ParaTracker runs as a backend (FastAPI, port 8000) plus a frontend dev server (V
 
 Follow the steps below **in order**. You only need to do the setup steps (1–4) once.
 
+> For Windows commands, please user Powershell.
+
 ### 1. Install prerequisites
 
 You need these installed on your computer before anything else:
