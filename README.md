@@ -3,7 +3,7 @@
 A full-stack application for *Microfilaria motion analysis*. The system uses skeleton-based keypoint extraction to capture body posture and deformation over time, enabling quantitative behavioral analysis. Two selectable tracking pipelines are available: a classical computer vision approach that requires no training data, and a deep learning pipeline powered by a custom-trained YOLOv8-seg instance segmentation model.
 
 <p align="center">
-  <img src="media/ParatrackerGIF.gif" alt="Worm Tracker: upload, process, and analyze worm videos" width="800" />
+  <img src="media/ParaTrackerGIF.gif" alt="Worm Tracker: upload, process, and analyze worm videos" width="800" />
 </p>
 
 ## Demo Videos
