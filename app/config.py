@@ -59,7 +59,7 @@ def load_config() -> dict:
     import logging as _logging
     _log = _logging.getLogger(__name__)
     config_file = get_config_dir() / "config.json"
-    defaults = {"outputs_dir": str(get_default_outputs_dir())}
+    defaults = {"outputs_dir": str(get_default_outputs_dir()), "model_path": ""}
     if not config_file.exists():
         return defaults
     try:

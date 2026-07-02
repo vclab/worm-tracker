@@ -179,6 +179,9 @@ def compute_cost_matrix(current_pts, prev_pts):
     n_prev = len(prev_pts)
     n_curr = len(current_pts)
 
+    if n_prev == 0 or n_curr == 0:
+        return np.zeros((n_prev, n_curr))
+
     # Stack into arrays: (N, K, 2)
     prev_arr = np.array(prev_pts)    # (n_prev, K, 2)
     curr_arr = np.array(current_pts) # (n_curr, K, 2)
@@ -243,6 +246,22 @@ def draw_tracks(frame, worm_keypoints, worm_ids, keypoints_per_worm, partial_fla
                     partial_color if is_partial else (255, 255, 255), 1)
     return frame
 
+def _zero_motion_stats() -> dict:
+    """Return a valid motion-stats dict with all-zero values (no worms detected)."""
+    return {
+        "num_worms": 0,
+        "mean_motion": 0.0, "std_motion": 0.0, "min_motion": 0.0, "max_motion": 0.0,
+        "worm_ids": [], "per_worm_motion": [],
+        "head_mean_motion": 0.0, "head_std_motion": 0.0,
+        "head_min_motion": 0.0, "head_max_motion": 0.0, "per_worm_head_motion": [],
+        "mid_mean_motion": 0.0, "mid_std_motion": 0.0,
+        "mid_min_motion": 0.0, "mid_max_motion": 0.0, "per_worm_mid_motion": [],
+        "tail_mean_motion": 0.0, "tail_std_motion": 0.0,
+        "tail_min_motion": 0.0, "tail_max_motion": 0.0, "per_worm_tail_motion": [],
+        "per_frame_motion": {},
+    }
+
+
 def compute_motion_stats(keypoint_tracks):
     """
     Compute motion statistics aggregated across all worms.
@@ -256,9 +275,10 @@ def compute_motion_stats(keypoint_tracks):
     Includes per-frame motion data for time series visualization.
 
     Note: keypoint_tracks should already be filtered by persistence before calling.
+    Returns a dict with num_worms=0 and all-zero values when no tracks are provided.
     """
     if not keypoint_tracks:
-        return None
+        return _zero_motion_stats()
 
     worm_ids = []  # Track actual worm IDs
     worm_motion_values = []  # One value per worm: avg movement per keypoint per frame
@@ -344,7 +364,7 @@ def compute_motion_stats(keypoint_tracks):
         }
 
     if not worm_motion_values:
-        return None
+        return _zero_motion_stats()
 
     worm_motion_array = np.array(worm_motion_values)
     head_motion_array = np.array(head_motion_values)
@@ -500,15 +520,28 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     track_memory = []
     next_id = 0
     keypoint_tracks = {}
-    partial_worm_ids = set()  # Track worms that have ever been partial (touched edge)
+    partial_cutoff = {}  # worm_id → track-index of first partial frame (slice [:cutoff] to truncate)
 
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     pbar = tqdm(total=total_frames, desc="Processing frames", unit="frame")
+    _skipped_frames = 0
+    _consecutive_read_failures = 0
     try:
         while True:
             ret, frame = cap.read()
             if not ret:
+                # Allow a short run of unreadable frames (corrupt but recoverable codec);
+                # break only after 5 consecutive failures (normal end-of-file or unrecoverable).
+                _consecutive_read_failures += 1
+                if _consecutive_read_failures <= 5:
+                    _skipped_frames += 1
+                    logger.warning(
+                        "Could not read frame near index %d, skipping (%d skipped so far)",
+                        frame_idx, _skipped_frames,
+                    )
+                    continue
                 break
+            _consecutive_read_failures = 0
             pbar.update(1)
 
             # Report progress every 10 frames
@@ -596,14 +629,17 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
                     keypoint_tracks[worm_id] = [[] for _ in range(keypoints_per_worm)]
                 for i in range(keypoints_per_worm):
                     keypoint_tracks[worm_id][i].append(keypoints[i])
-                # Mark worm as partial if it ever touches an edge
-                if is_partial:
-                    partial_worm_ids.add(worm_id)
+                # Record the first frame index (within this worm's track) where it goes partial.
+                # Slice [:cutoff] later to keep all frames before the first partial one.
+                if is_partial and worm_id not in partial_cutoff:
+                    partial_cutoff[worm_id] = len(keypoint_tracks[worm_id][0]) - 1
 
             annotated = draw_tracks(frame.copy(), current_keypoints, current_ids, keypoints_per_worm, current_partial_flags)
             cv2.imwrite(os.path.join(frames_dir, f"frame_{frame_idx:04d}.png"), annotated)
             frame_idx += 1
     finally:
+        if _skipped_frames > 0:
+            logger.warning("Skipped %d unreadable frame(s) during processing", _skipped_frames)
         pbar.close()
         cap.release()
 
@@ -643,17 +679,26 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     out.release()
     logger.info("Tracking complete. Output folder: %s", job_output_dir)
 
-    # Filter out worms with fewer than 'persistence' frames AND worms that were ever partial
+    # Step 1: truncate edge-touching worms at their first partial frame
+    truncated_tracks = {}
+    for worm_id, kp_lists in keypoint_tracks.items():
+        if worm_id in partial_cutoff:
+            cutoff = partial_cutoff[worm_id]
+            truncated_tracks[worm_id] = [lst[:cutoff] for lst in kp_lists]
+        else:
+            truncated_tracks[worm_id] = kp_lists
+
+    # Step 2: persistence filter on the (possibly truncated) length
     filtered_tracks = {
-        worm_id: frames for worm_id, frames in keypoint_tracks.items()
-        if len(frames[0]) >= persistence and worm_id not in partial_worm_ids
+        worm_id: frames for worm_id, frames in truncated_tracks.items()
+        if len(frames[0]) >= persistence
     }
-    num_low_persistence = sum(1 for worm_id, frames in keypoint_tracks.items() if len(frames[0]) < persistence)
-    num_partial = sum(1 for worm_id in keypoint_tracks if worm_id in partial_worm_ids and len(keypoint_tracks[worm_id][0]) >= persistence)
+    num_truncated = len(partial_cutoff)
+    num_low_persistence = sum(1 for frames in truncated_tracks.values() if len(frames[0]) < persistence)
     num_retained = len(filtered_tracks)
-    logger.info("Discarded %d worm(s) with fewer than %d frames", num_low_persistence, persistence)
-    logger.info("Discarded %d partial worm(s) (touched frame edge)", num_partial)
-    logger.info("Retained %d fully-visible worm(s)", num_retained)
+    logger.info("Truncated %d worm(s) at first edge-touch", num_truncated)
+    logger.info("Discarded %d worm(s) with fewer than %d frames after truncation", num_low_persistence, persistence)
+    logger.info("Retained %d worm(s)", num_retained)
 
     # Save tracking metadata to YAML
     # Extract original filename (strip job_id__ prefix if present)
@@ -676,8 +721,8 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
         },
         "total_frames": frame_idx,
         "worms_tracked": num_retained,
+        "worms_truncated_at_edge": num_truncated,
         "worms_discarded_low_persistence": num_low_persistence,
-        "worms_discarded_partial": num_partial
     }
     metadata_path = os.path.join(job_output_dir, f"{job_folder}_metadata.yaml")
     with open(metadata_path, 'w') as f:
@@ -689,9 +734,8 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     # so regenerate_tracked_video can redraw them with the magenta edge indicator.
     keypoints_npz_path = os.path.join(job_output_dir, f"{job_folder}_keypoints.npz")
     npz_data = {str(worm_id): np.array(frames) for worm_id, frames in filtered_tracks.items()}
-    for worm_id, frames in keypoint_tracks.items():
-        if worm_id in partial_worm_ids:
-            npz_data[f"partial_{worm_id}"] = np.array(frames)
+    for worm_id in partial_cutoff:
+        npz_data[f"partial_{worm_id}"] = np.array(keypoint_tracks[worm_id])
     np.savez_compressed(keypoints_npz_path, **npz_data)
     logger.info("Worm keypoints saved at: %s", keypoints_npz_path)
 

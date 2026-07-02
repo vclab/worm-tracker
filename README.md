@@ -1,43 +1,10 @@
 # ParaTracker
 
-A full-stack application for *Microfilaria motion analysis*.  The system uses skeleton-based keypoint extraction to capture body posture and deformation over time, enabling quantitative behavioral analysis without any training data.
+A full-stack application for *Microfilaria motion analysis*. The system uses skeleton-based keypoint extraction to capture body posture and deformation over time, enabling quantitative behavioral analysis. Two selectable tracking pipelines are available: a classical computer vision approach that requires no training data, and a deep learning pipeline powered by a custom-trained YOLOv8-seg instance segmentation model.
 
 <p align="center">
-  <img src="media/WormTrackerDemoGif.gif" alt="Worm Tracker — upload, process, and analyze worm videos" width="800" />
+  <img src="media/ParaTrackerGIF.gif" alt="Worm Tracker: upload, process, and analyze worm videos" width="800" />
 </p>
-
-## Features
-
-### 🎥 Side-by-Side Video Comparison
-Compare original and tracked videos with a synchronized draggable slider. See exactly how tracking overlays map to the raw footage.
-
-<p align="center">
-  <img src="media/App-with-Split.png" alt="Video comparison slider" width="750" />
-</p>
-
-### 📊 Motion Analysis Dashboard
-Color-coded heatmap showing overall, head, mid-body, and tail motion per worm. Click any row to view per-frame displacement charts with a rolling average for trend analysis. Hover legend items to isolate individual lines.
-
-<p align="center">
-  <img src="media/MotionAnalysis.png" alt="Motion analysis dashboard" width="750" />
-</p>
-
-### 📁 Multi-File Upload & Job Queue
-Upload multiple videos — they queue and process sequentially. Full job history with view, download, and delete. Re-run any job with different parameters without re-uploading.
-
-<p align="center">
-  <img src="media/Parameter-Panel.png" alt="Parameter panel with job queue" width="750" />
-</p>
-
-### Additional Features
-
-- **Head/Tail Correction** — Manually flip head↔tail assignment for individual worms, recomputes all metrics
-- **Re-run with New Parameters** — Adjust parameters after processing and re-run on the same file
-- **Cancel Processing** — Cancel active jobs mid-processing with automatic file cleanup
-- **Info Tooltips** — Hover ⓘ icons on each metric to see what it measures and how it's computed
-- **Rolling Average Chart** — Smoothed trend line (window of 10) below the raw timeline to reveal activity patterns
-- **Legend Hover Highlighting** — Hover a legend item to isolate that line on the chart
-- **CSV/ZIP Export** — Download per-worm summary and per-frame timeseries data for external analysis
 
 ## Demo Videos
 
@@ -53,7 +20,7 @@ Upload multiple videos — they queue and process sequentially. Full job history
 | [Export & Data](#) | CSV/ZIP download, output file formats |
 -->
 
-*Coming soon — short walkthrough videos for each feature area.*
+*Coming soon: short walkthrough videos for each feature area.*
 
 ## Technology Stack
 
@@ -62,96 +29,163 @@ Upload multiple videos — they queue and process sequentially. Full job history
 | Backend | Python 3, FastAPI |
 | Frontend | React, Vite, Recharts |
 | CV / Scientific | OpenCV, scikit-image, SciPy, NumPy |
+| ML / Deep Learning | PyTorch (CUDA), Ultralytics YOLOv8-seg, pycocotools |
 | Database | SQLite |
 | Video | FFmpeg (H.264 transcoding) |
 | Communication | Server-Sent Events (SSE) |
 
 ## Getting Started
 
-### Option A — Standalone macOS App (no setup required)
+ParaTracker runs as a backend (FastAPI, port 8000) plus a frontend dev server (Vite, port 5173). Helper scripts handle installing dependencies, downloading the tracking model, freeing the ports, and starting both servers together: a `Makefile` for macOS/Linux and an equivalent `dev.ps1` for Windows.
 
-Build a self-contained `WormTracker.app` bundle (includes FFmpeg, no Python or Node needed on the target machine):
+Follow the steps below **in order**. You only need to do the setup steps (1–4) once.
+
+> For Windows commands, please use ***Powershell***.
+
+### 1. Install prerequisites
+
+You need these installed on your computer before anything else:
+
+1. **Python 3.11** — <https://www.python.org/downloads/>
+2. **Node.js 18 or newer** (this also installs `npm`) — <https://nodejs.org>
+3. **FFmpeg** (for video processing):
+   - macOS: `brew install ffmpeg`
+   - Linux: `apt install ffmpeg`
+   - Windows: download from <https://www.gyan.dev/ffmpeg/builds/> or run `choco install ffmpeg`
+
+> Note: NumPy must stay below version 2 (NumPy 2.x breaks the image-processing libraries). It's already pinned in `requirements.txt`, so as long as you don't manually upgrade it, you're fine.
+
+### 2. Download the project
 
 ```bash
-./build.sh
+git clone https://github.com/vclab/worm-tracker.git
+cd worm-tracker
 ```
 
-Then launch:
+### 3. Download the tracking model (required — do this before running)
+
+The YOLO tracking model is **not** included in the download and must be fetched separately. The YOLO tracker will not work without it. Run the matching command for your system:
+
+**macOS / Linux:**
+```bash
+make weights
+```
+
+**Windows:**
+```powershell
+.\dev.ps1 weights
+```
+
+This downloads the model from Google Drive and verifies it automatically. It only needs to be done once — the model is saved into the `weights/` folder and reused after that.
+
+> If you skip this step, using the YOLO tracker on Windows will fail because it can't find the model. (On macOS/Linux, `make run` will download it for you if you forgot — but it's cleaner to do it here first.)
+
+### 4. Start the app
+
+**macOS / Linux:**
+```bash
+make run
+```
+
+**Windows:**
+```powershell
+.\dev.ps1 run
+```
+
+This installs any remaining dependencies, starts the backend (port 8000) and the frontend (port 5173) together, and stops both cleanly when you press **Ctrl+C**.
+
+Then open **<http://127.0.0.1:5173>** in your web browser. That's the app.
+
+---
+
+### Other commands
+
+You won't normally need these, but they're available.
+
+**macOS / Linux (`make <target>`):**
+
+| Target | What it does |
+| --- | --- |
+| `make run` | Start backend + frontend |
+| `make weights` | Download and verify the YOLO model |
+| `make venv` | Create the Python environment (`~/venv/worm-tracker`) and install requirements |
+| `make build` | Install frontend dependencies |
+| `make dist` | Build the standalone macOS app bundle (see below) |
+| `make clean` | Remove caches, frontend build, and `build/`+`dist/` |
+| `make clean-python` | Remove `__pycache__` and compiled Python files |
+| `make clean-python-env` | Remove the Python virtual environment |
+| `make clean-frontend` | Remove `frontend/dist` and `frontend/node_modules` |
+| `make clean-build` | Remove `build/` and `dist/` |
+| `make clean-weights` | Remove the downloaded model |
+
+**Windows (`.\dev.ps1 <target>`):**
+
+| Target | What it does |
+| --- | --- |
+| `.\dev.ps1 run` | Start backend + frontend |
+| `.\dev.ps1 weights` | Download and verify the YOLO model |
+| `.\dev.ps1 venv` | Create the Python environment (`.\venv`) and install requirements |
+| `.\dev.ps1 build` | Install frontend dependencies |
+| `.\dev.ps1 clean` | Remove caches and frontend build |
+| `.\dev.ps1 clean-python` | Remove `__pycache__` and compiled Python files |
+| `.\dev.ps1 clean-python-env` | Remove the Python virtual environment |
+| `.\dev.ps1 clean-frontend` | Remove `frontend/dist` and `frontend/node_modules` |
+| `.\dev.ps1 clean-weights` | Remove the downloaded model |
+
+> The Python virtual environment is created in a different place on each system: `~/venv/worm-tracker` on macOS/Linux, and `.\venv` inside the project folder on Windows.
+
+---
+
+### Standalone macOS App (no setup on the target machine)
+
+To build a self-contained `WormTracker.app` (it bundles FFmpeg, so the machine you run it on needs no Python or Node):
+
+```bash
+make dist
+```
+
+This cleans, sets up the environment, downloads the model, and builds the bundle. Launch it with:
+
 ```bash
 open dist/WormTracker.app
 ```
 
-Or run directly to see server logs:
+Or run the binary directly to see server logs:
+
 ```bash
 dist/WormTracker/WormTracker
 ```
 
-> **Prerequisites for building:** Python venv at `~/venv/worm-tracker` with dependencies installed, Node.js 18+, and `npm`.
+### Manual run (advanced)
 
-### Option B — Development Mode
-
-Run backend and frontend separately with hot-reload.
-
-#### Prerequisites
-
-1. **Python 3.9+** — <https://www.python.org/downloads/>
-2. **Node.js v18+** — <https://nodejs.org> (also installs `npm`)
-3. **FFmpeg** — for H.264 video transcoding
-   - macOS: `brew install ffmpeg`
-   - Linux: `apt install ffmpeg`
-   - Windows: <https://www.gyan.dev/ffmpeg/builds/> or `choco install ffmpeg`
-
-#### Setup
+If you'd rather start the servers yourself instead of using the scripts, run the backend and frontend in two terminals. This skips the automatic port-cleanup and clean shutdown the scripts provide — and you must have already downloaded the model (step 3).
 
 ```bash
-# 1. Clone
-git clone https://github.com/vclab/worm-tracker.git
-cd worm-tracker
-
-# 2. Python environment
-python -m venv ~/venv/worm-tracker
-source ~/venv/worm-tracker/bin/activate   # macOS/Linux
-# .\venv\Scripts\activate                 # Windows
-pip install -r requirements.txt
-
-# 3. Frontend dependencies
-cd frontend
-npm install
-cd ..
-```
-
-#### Running
-
-Two terminals:
-
-**Terminal 1 — backend:**
-```bash
-source ~/venv/worm-tracker/bin/activate
+# Terminal 1 — backend
+source ~/venv/worm-tracker/bin/activate      # macOS/Linux
+# .\venv\Scripts\activate                    # Windows
 uvicorn app.main:app --reload --port 8000
-```
 
-**Terminal 2 — frontend:**
-```bash
+# Terminal 2 — frontend
 cd frontend
 npm run dev
 ```
 
-Open **<http://127.0.0.1:5173>** in your browser.
-
 ## How to Use
 
 1. Open the app in your browser
-2. Adjust tracking parameters if needed (Keypoints, Area Threshold, Max Age, Persistence)
-3. Select one or more video files and click **Add to queue**
-4. Jobs are processed one at a time — the **Job History** panel shows live progress
-5. Click a completed job to load its results:
-   - **Before/after comparison slider** — drag to reveal original vs. tracked video
-   - **Download All (ZIP)** — tracked video, original, keypoints (`.npz`), metadata (`.yaml`), motion stats (`.json`)
-   - **Export CSV** — per-worm summary and per-frame timeseries data
-   - **Head/Tail Correction** — flip head↔tail assignment for individual worms, then re-download
-   - **Motion Analysis** — per-worm heatmap and timeline chart (overall, head, mid-body, tail motion)
-6. Use **Re-run with new parameters** to reprocess the same file with adjusted parameters
-7. Use **Run on another file** to reset and process a new video
+2. Select the tracking pipeline: **Classical** (threshold-based, no training data required) or **YOLO** (deep learning, better on translucent or overlapping specimens)
+3. Adjust tracking parameters if needed (Keypoints, Area Threshold, Max Age, Persistence)
+4. Select one or more video files and click **Add to queue**
+5. Jobs are processed one at a time -- the **Job History** panel shows live progress
+6. Click a completed job to load its results:
+   - **Before/after comparison slider**: drag to reveal original vs. tracked video
+   - **Download All (ZIP)**: tracked video, original, keypoints (`.npz`), metadata (`.yaml`), motion stats (`.json`)
+   - **Export CSV**: per-worm summary and per-frame timeseries data
+   - **Head/Tail Correction**: flip head/tail assignment for individual worms, then re-download
+   - **Motion Analysis**: per-worm heatmap and timeline chart (overall, head, mid-body, tail motion)
+7. Use **Re-run with new parameters** to reprocess the same file with adjusted parameters
+8. Use **Run on another file** to reset and process a new video
 
 ### Tracking Parameters
 
@@ -162,17 +196,58 @@ Open **<http://127.0.0.1:5173>** in your browser.
 | Max age | 35 | Frames to keep tracking a worm after it disappears |
 | Persistence | 50 | Minimum frames tracked to include a worm in output |
 
-## Output Formats
+## Export and Download Options
 
-| File | Format | Contents |
-|---|---|---|
-| `*_tracked.mp4` | H.264 video | Annotated video with colored skeleton keypoints and worm IDs |
-| `*_original.*` | original format | Copy of the input video |
-| `*_metadata.yaml` | YAML | Git version, timestamp, parameters, frame count |
-| `*_keypoints.npz` | NumPy archive | Per-worm keypoint data — see details below |
-| `*_motion_stats.json` | JSON | Per-worm motion values (overall, head, mid-body, tail) and aggregate stats |
-| `*_summary.csv` | CSV | One row per worm: mean motion values (overall, head, mid-body, tail) |
-| `*_timeseries.csv` | CSV | One row per frame window: per-worm head/mid-body/tail motion over time |
+ParaTracker lets you export results in a few places. The two **Metrics** page exports produce analysis-ready ZIPs; the **History** page offers per-job downloads of the raw tracking outputs.
+ 
+### Metrics page — Condition comparison export
+ 
+The **Export** button under *Condition comparison* downloads a ZIP for all the groups you've built. It contains:
+ 
+- **Grouped comparison chart** — as both **PNG** and **SVG**.
+- **`group_summary.csv`** — one row per group × pipeline, with the worm count (`n`) and the mean and standard deviation for head, midbody, and tail motion.
+- **`per_worm.csv`** — the raw per-worm rows behind those averages: group label, video, pipeline, worm ID, and head / midbody / tail / overall motion, for every worm in every group.
+This export is the group-level result plus the underlying data, so you can recompute or dig into the numbers yourself. It does not include per-video metadata or raw keypoints — use the single-video export for those.
+ 
+### Metrics page — Single video analysis export
+ 
+The **Export** button under *Single video analysis* downloads a ZIP for the currently selected video. It contains:
+ 
+- **Drill-down chart** — as both **PNG** and **SVG**.
+- That video's **summary CSV**, **timeseries CSV**, **`motion_stats.json`**, **metadata YAML**, and **`*_keypoints.npz`** (the raw keypoints).
+This is the complete, reproducible package for a single video.
+
+### History page — per-job downloads
+ 
+Each job row in the **History** page has its own action buttons:
+ 
+- **View** — opens the tracked result for that job in the app (the annotated video / comparison view).
+- **Video** — downloads the tracked output video (H.264 MP4).
+- **ZIP** — downloads the job's **package ZIP** (`{output_name}.zip`), containing:
+  | File | Description |
+  | --- | --- |
+  | `*_original.*` | Copy of the originally uploaded video file |
+  | `*_tracked.mp4` | H.264-encoded video annotated with colored skeleton keypoints and worm IDs |
+  | `*.yaml` | Metadata — git version, timestamp, tracking parameters used, frame count |
+  | `*_keypoints.npz` | NumPy archive of per-worm skeleton keypoint coordinates over time (`[y, x]` per keypoint per frame; partial/edge-touching worms stored under a `partial_` key prefix) |
+  | `*_motion_stats.json` | Per-worm motion values (overall, head, mid-body, tail) and aggregate stats |
+  
+  The package ZIP does **not** include the CSV files — those are in the separate `_data.zip` served by the "CSV" button.
+- **CSV** — downloads the job's **data ZIP** (`{output_name}_data.zip`), containing the per-worm summary CSV and the per-frame timeseries CSV.
+  | File | Description |
+  | --- | --- |
+  | `*_summary.csv` | One row per worm: mean motion values (overall, head, mid-body, tail) |
+  | `*_timeseries.csv` | One row per frame window: per-worm head/mid-body/tail motion over time |
+  
+- **Delete** — removes the job and its outputs.
+
+  | File | Format | Contents |
+  |---|---|---|
+  | `*_tracked.mp4` | H.264 video | Annotated video with colored skeleton keypoints and worm IDs |
+  | `*_original.*` | original format | Copy of the input video |
+  | `*_metadata.yaml` | YAML | Git version, timestamp, parameters, frame count |
+  | `*_keypoints.npz` | NumPy archive | Per-worm keypoint data -- see details below |
+  | `*_motion_stats.json` | JSON | Per-worm motion values (overall, head, mid-body, tail) and aggregate stats |
 
 ### Keypoints NPZ Format
 
@@ -185,27 +260,15 @@ with np.load("*_keypoints.npz") as npz:
     y, x = arr[0, 0]         # [y, x] position of keypoint 0 at frame 0
 ```
 
-**Array shape:** `(num_keypoints, num_frames, 2)` — axis 0 is keypoints along the skeleton (index 0 = head, index -1 = tail), axis 1 is frames, axis 2 is `[y, x]` pixel coordinates.
+**Array shape:** `(num_keypoints, num_frames, 2)` -- axis 0 is keypoints along the skeleton (index 0 = head, index -1 = tail), axis 1 is frames, axis 2 is `[y, x]` pixel coordinates.
 
 | Key pattern | Description |
 |---|---|
-| `"0"`, `"1"`, `"2"`, … | Fully retained worms — tracked for ≥ `persistence` frames and never touched a frame edge |
-| `"partial_0"`, `"partial_2"`, … | Partial worms — touched a frame edge, excluded from motion analysis |
+| `"0"`, `"1"`, `"2"`, ... | Fully retained worms -- tracked for >= `persistence` frames and never touched a frame edge |
+| `"partial_0"`, `"partial_2"`, ... | Partial worms -- touched a frame edge, excluded from motion analysis |
 
 **Head/tail orientation:** keypoint 0 = head (wider end), keypoint -1 = tail (narrower end). Correctable via the Head/Tail Correction tool.
 
-## File Locations
-
-| Path | Description |
-|---|---|
-| `~/Documents/WormTracker/` | Default outputs folder (user-configurable) |
-| `~/Documents/WormTracker/{job_id}/{timestamp}_name/` | All outputs for a job |
-| `~/Documents/WormTracker/jobs.db` | SQLite job history |
-| `~/Library/Application Support/WormTracker/config.json` | App config (macOS) |
-
-All output folders and databases are created automatically. The outputs directory can be changed via **⚙ Settings** in the UI.
-
-> On Windows: `%APPDATA%/WormTracker/` · On Linux: `~/.config/WormTracker/`
 
 ## Troubleshooting
 
@@ -224,7 +287,7 @@ python -m app.worm_tracker input.mov output_dir --keypoints 15 --min-area 50 --m
 
 ## Authors
 
-- [Aaveg Shangari](https://avishangari.github.io/aaveg-portfolio/index.html) (*[linkedin](https://www.linkedin.com/in/aaveg-shangari/)*) 
+- [Aaveg Shangari](https://avishangari.github.io/aaveg-portfolio/index.html) (*[linkedin](https://www.linkedin.com/in/aaveg-shangari/)*)
 - Faisal Qureshi
 
 [VCLab](https://www.vclab.ca), Faculty of Science, Ontario Tech University

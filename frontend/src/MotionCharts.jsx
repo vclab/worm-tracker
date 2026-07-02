@@ -202,22 +202,22 @@ function MotionCharts({ data }) {
           </h4>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={timeSeriesData} margin={{ top: 10, right: 30, left: 10, bottom: 25 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#2c3036" />
               <XAxis
                 dataKey="frame"
-                stroke="#9ca3af"
+                stroke="#9aa0a6"
                 tick={{ fontSize: 10 }}
-                label={{ value: "Frame", position: "insideBottom", offset: -5, fill: "#9ca3af", fontSize: 10 }}
+                label={{ value: "Frame", position: "insideBottom", offset: -5, fill: "#9aa0a6", fontSize: 10 }}
               />
               <YAxis
-                stroke="#9ca3af"
+                stroke="#9aa0a6"
                 tick={{ fontSize: 10 }}
-                label={{ value: "px/frame", angle: -90, position: "insideLeft", fill: "#9ca3af", fontSize: 10 }}
+                label={{ value: "px/frame", angle: -90, position: "insideLeft", fill: "#9aa0a6", fontSize: 10 }}
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "#1f2937",
-                  border: "1px solid #374151",
+                  backgroundColor: "#1c1f23",
+                  border: "0.5px solid #2c3036",
                   borderRadius: "8px",
                 }}
                 formatter={(value) => [value != null ? value.toFixed(3) : "—", ""]}
@@ -270,22 +270,22 @@ function MotionCharts({ data }) {
           </h4>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={rollingAvgData} margin={{ top: 10, right: 30, left: 10, bottom: 25 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
+              <CartesianGrid strokeDasharray="3 3" stroke="#2c3036" />
               <XAxis
                 dataKey="frame"
-                stroke="#9ca3af"
+                stroke="#9aa0a6"
                 tick={{ fontSize: 10 }}
-                label={{ value: "Frame", position: "insideBottom", offset: -5, fill: "#9ca3af", fontSize: 10 }}
+                label={{ value: "Frame", position: "insideBottom", offset: -5, fill: "#9aa0a6", fontSize: 10 }}
               />
               <YAxis
-                stroke="#9ca3af"
+                stroke="#9aa0a6"
                 tick={{ fontSize: 10 }}
-                label={{ value: "px/frame", angle: -90, position: "insideLeft", fill: "#9ca3af", fontSize: 10 }}
+                label={{ value: "px/frame", angle: -90, position: "insideLeft", fill: "#9aa0a6", fontSize: 10 }}
               />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: "#1f2937",
-                  border: "1px solid #374151",
+                  backgroundColor: "#1c1f23",
+                  border: "0.5px solid #2c3036",
                   borderRadius: "8px",
                 }}
                 formatter={(value) => [value != null ? value.toFixed(3) : "—", ""]}

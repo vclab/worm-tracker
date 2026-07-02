@@ -8,3 +8,10 @@ scipy
 tqdm
 PyYAML
 imageio-ffmpeg
+ultralytics
+matplotlib
+jupyter
+gdown
+pandas
+seaborn
+pydantic

@@ -1,10 +1,18 @@
-.PHONY: dist build run clean clean-python clean-python-env clean-frontend clean-build check-npm venv
+.PHONY: dist build run clean clean-python clean-python-env clean-frontend clean-build clean-weights check-npm venv weights
 
 SHELL := /bin/bash
 VENV := $(HOME)/venv/worm-tracker
 PIP_STAMP := $(VENV)/.requirements-stamp
 
-dist: clean venv
+# YOLO weights — content-hashed filename so the SHA256 in the path is the
+# integrity check. To swap models, change both WEIGHTS_SHA256 and
+# WEIGHTS_GDRIVE_ID here, and keep DEFAULT_WEIGHTS_SHA256 in app/main.py in sync.
+WEIGHTS_DIR := weights
+WEIGHTS_SHA256 := f7712cb708c94a788f36fe8cbf9c1f479e399286ab3c9afbbb318e4c6d9f80fe
+WEIGHTS_FILE := $(WEIGHTS_DIR)/worm_yolov8seg-$(WEIGHTS_SHA256).pt
+WEIGHTS_GDRIVE_ID := 1s9IiJdX9vUkwJ9MOFV1rZDEWsKyk_ofk
+
+dist: clean venv weights
 	./build.sh
 
 build: check-npm frontend/node_modules/.install-stamp
@@ -41,13 +49,32 @@ frontend/node_modules/.install-stamp: frontend/package.json | check-npm
 	cd frontend && npm install
 	@touch frontend/node_modules/.install-stamp
 
-run: check-npm frontend/node_modules/.install-stamp $(PIP_STAMP)
+run: check-npm frontend/node_modules/.install-stamp $(PIP_STAMP) $(WEIGHTS_FILE)
 	@lsof -ti:8000 | xargs kill -9 2>/dev/null; true
 	@trap 'kill 0' INT TERM EXIT; \
 		source "$(VENV)/bin/activate" && \
 		uvicorn app.main:app --reload --port 8000 & \
 		npm --prefix frontend run dev; \
 		wait
+
+weights: $(WEIGHTS_FILE)
+
+$(WEIGHTS_FILE): $(PIP_STAMP)
+	@mkdir -p $(WEIGHTS_DIR)
+	@echo "Downloading YOLO weights from Google Drive (id=$(WEIGHTS_GDRIVE_ID))..."
+	@TMP=$$(mktemp -t worm_yolov8seg.XXXXXX) && \
+		source "$(VENV)/bin/activate" && \
+		python -m gdown "$(WEIGHTS_GDRIVE_ID)" -O "$$TMP" && \
+		ACTUAL_SHA=$$(shasum -a 256 "$$TMP" | awk '{print $$1}') && \
+		if [ "$$ACTUAL_SHA" != "$(WEIGHTS_SHA256)" ]; then \
+			echo "ERROR: SHA256 mismatch for downloaded weights."; \
+			echo "  expected: $(WEIGHTS_SHA256)"; \
+			echo "  actual:   $$ACTUAL_SHA"; \
+			rm -f "$$TMP"; \
+			exit 1; \
+		fi && \
+		mv "$$TMP" "$(WEIGHTS_FILE)" && \
+		echo "Weights verified and saved to $(WEIGHTS_FILE)"
 
 clean: clean-python clean-frontend clean-build
 	@echo "Done."
@@ -69,3 +96,6 @@ clean-frontend:
 
 clean-build:
 	rm -rf build dist
+
+clean-weights:
+	rm -rf $(WEIGHTS_DIR)

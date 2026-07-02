@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager, contextmanager
@@ -28,15 +28,38 @@ import cv2
 
 from app.worm_tracker import run_tracking, compute_motion_stats, export_csv_files, draw_tracks
 from app.config import load_config, save_config, get_config_dir
+from app.aggregation import build_tables
+
+# Thresholds for the large-video confirmation prompt shown at upload time.
+# Tune these without touching upload logic.
+_LARGE_VIDEO_FRAMES = 5_000          # frame count that triggers the warning
+_LARGE_VIDEO_BYTES  = 500 * 1024 ** 2  # 500 MB — file-size fallback trigger
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
-    # Startup is handled at module level (lock + DB init + worker thread).
+    global _lock_fh, _worker_started, _worker
+    # Only the serving process runs lifespan; the reloader's module import does not.
+    # Guard against hypothetical double-invocation within the same process.
+    if not _worker_started:
+        _worker_started = True
+        try:
+            _acquire_outputs_lock()
+            init_db()
+            migrate_existing_outputs()
+        except Exception as _db_exc:
+            logger.critical(
+                "Failed to initialize database at %s: %s — queue worker will not start",
+                DB_PATH, _db_exc,
+            )
+        else:
+            _worker = threading.Thread(target=queue_worker, daemon=True, name="queue-worker")
+            _worker.start()
     yield
-    # Shutdown: explicitly release the outputs-directory lock so the lock file
-    # is not left stale on platforms where the kernel might not release it
-    # immediately (e.g. NFS mounts).
-    global _lock_fh
+    # Shutdown: signal the worker to stop and wait up to 10 s for a clean exit
+    # before releasing the outputs-directory lock.
+    _shutdown_event.set()
+    if _worker is not None and _worker.is_alive():
+        _worker.join(timeout=10)
     if _lock_fh is not None:
         try:
             _lock_fh.close()
@@ -55,6 +78,11 @@ active_jobs_lock = threading.Lock()
 _npz_locks: dict[str, threading.Lock] = {}
 _npz_locks_lock = threading.Lock()
 
+# Queue-worker lifecycle state
+_shutdown_event = threading.Event()   # set on lifespan shutdown to stop the worker loop
+_worker_started = False               # guard: only one worker per process
+_worker: threading.Thread | None = None
+
 
 def _get_npz_lock(job_id: str) -> threading.Lock:
     with _npz_locks_lock:
@@ -71,6 +99,12 @@ app.add_middleware(
 )
 
 APP_DIR = Path(__file__).resolve().parent
+
+# Default YOLO weights downloaded by `make weights`. Filename is content-hashed
+# so the SHA256 in the path is the integrity check. Keep DEFAULT_WEIGHTS_SHA256
+# in sync with WEIGHTS_SHA256 in the Makefile.
+DEFAULT_WEIGHTS_SHA256 = "f7712cb708c94a788f36fe8cbf9c1f479e399286ab3c9afbbb318e4c6d9f80fe"
+DEFAULT_WEIGHTS = APP_DIR.parent / "weights" / f"worm_yolov8seg-{DEFAULT_WEIGHTS_SHA256}.pt"
 
 # ---------------------------------------------------------------------------
 # Paths — outputs and DB are user-configurable; uploads live alongside outputs
@@ -209,6 +243,13 @@ def init_db():
             "UPDATE jobs SET status='error', finished_at=?, error_msg=? "
             "WHERE status='processing'",
             (_now_iso(), "Server restarted while job was processing"),
+        )
+        # Uploads awaiting large-video confirmation are stale after restart —
+        # the temp file is still on disk but the browser dialog is gone.
+        conn.execute(
+            "UPDATE jobs SET status='cancelled', finished_at=?, error_msg=? "
+            "WHERE status='pending_confirm'",
+            (_now_iso(), "Server restarted before upload was confirmed — please re-upload"),
         )
         conn.commit()
 
@@ -490,18 +531,41 @@ def process_job(job_id: str):
             )
 
     try:
-        run_tracking(
-            video_path=str(saved_path),
-            output_dir=str(job_dir),
-            keypoints_per_worm=params.get("keypoints_per_worm", 15),
-            area_threshold=params.get("area_threshold", 50),
-            max_age=params.get("max_age", 35),
-            show_video=False,
-            output_name=base_name,
-            persistence=params.get("persistence", 50),
-            progress_callback=progress_callback,
-            cancel_check=lambda: cancel_event.is_set(),
-        )
+        pipeline = params.get("pipeline", "classical")
+        if pipeline == "dl":
+            from app.dl_worm_tracker import dl_run_tracking
+            model_path = (
+                params.get("model_weights")
+                or load_config().get("model_path", "")
+                or (str(DEFAULT_WEIGHTS) if DEFAULT_WEIGHTS.is_file() else "")
+            )
+            dl_run_tracking(
+                video_path=str(saved_path),
+                output_dir=str(job_dir),
+                model_path=model_path,
+                keypoints_per_worm=params.get("keypoints_per_worm", 15),
+                area_threshold=params.get("area_threshold", 50),
+                max_age=params.get("max_age", 35),
+                show_video=False,
+                output_name=base_name,
+                persistence=params.get("persistence", 50),
+                conf_threshold=params.get("conf_threshold", 0.25),
+                progress_callback=progress_callback,
+                cancel_check=lambda: cancel_event.is_set(),
+            )
+        else:
+            run_tracking(
+                video_path=str(saved_path),
+                output_dir=str(job_dir),
+                keypoints_per_worm=params.get("keypoints_per_worm", 15),
+                area_threshold=params.get("area_threshold", 50),
+                max_age=params.get("max_age", 35),
+                show_video=False,
+                output_name=base_name,
+                persistence=params.get("persistence", 50),
+                progress_callback=progress_callback,
+                cancel_check=lambda: cancel_event.is_set(),
+            )
     except Exception as e:
         error_holder[0] = e
 
@@ -561,7 +625,7 @@ def process_job(job_id: str):
 def queue_worker():
     """Daemon thread: picks up pending jobs one at a time."""
     backoff = 2
-    while True:
+    while not _shutdown_event.is_set():
         try:
             with get_db(readonly=True) as conn:
                 row = conn.execute(
@@ -571,25 +635,13 @@ def queue_worker():
                 backoff = 2  # reset on successful DB access
                 process_job(row["job_id"])
             else:
-                time.sleep(2)
+                _shutdown_event.wait(2)
         except Exception as exc:
             logger.error("Queue worker error: %s", exc, exc_info=True)
-            time.sleep(backoff)
+            _shutdown_event.wait(backoff)
             backoff = min(backoff * 2, 60)
 
 
-try:
-    _acquire_outputs_lock()
-    init_db()
-    migrate_existing_outputs()
-except Exception as _db_exc:
-    logger.critical(
-        "Failed to initialize database at %s: %s — queue worker will not start",
-        DB_PATH, _db_exc,
-    )
-else:
-    _worker = threading.Thread(target=queue_worker, daemon=True)
-    _worker.start()
 
 # ---------------------------------------------------------------------------
 # Browser-presence watchdog (packaged app only)
@@ -649,32 +701,48 @@ def get_settings():
     cfg = load_config()
     return {
         "outputs_dir": cfg["outputs_dir"],
+        "model_path": cfg.get("model_path", ""),
         "config_dir": str(get_config_dir()),
         "restart_pending": _restart_pending,
     }
 
 
 class _SettingsIn(pydantic.BaseModel):
-    outputs_dir: str
+    outputs_dir: str | None = None
+    model_path: str | None = None
 
 
 @app.post("/api/settings")
 def update_settings(body: _SettingsIn):
     global _restart_pending
-    new_path = Path(body.outputs_dir).expanduser().resolve()
-    # Validate that the path is writable before saving
-    try:
-        new_path.mkdir(parents=True, exist_ok=True)
-        _test = new_path / ".write_test"
-        _test.touch()
-        _test.unlink()
-    except Exception as exc:
-        raise HTTPException(status_code=400, detail=f"Outputs folder is not writable: {exc}")
     cfg = load_config()
-    cfg["outputs_dir"] = str(new_path)
+    restart_required = False
+
+    if body.outputs_dir is not None:
+        new_path = Path(body.outputs_dir).expanduser().resolve()
+        # Validate that the path is writable before saving
+        try:
+            new_path.mkdir(parents=True, exist_ok=True)
+            _test = new_path / ".write_test"
+            _test.touch()
+            _test.unlink()
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=f"Outputs folder is not writable: {exc}")
+        if str(new_path) != cfg.get("outputs_dir"):
+            cfg["outputs_dir"] = str(new_path)
+            _restart_pending = True
+            restart_required = True
+
+    if body.model_path is not None:
+        cfg["model_path"] = body.model_path
+
     save_config(cfg)
-    _restart_pending = True
-    return {"ok": True, "outputs_dir": str(new_path), "restart_required": True}
+    return {
+        "ok": True,
+        "outputs_dir": cfg["outputs_dir"],
+        "model_path": cfg.get("model_path", ""),
+        "restart_required": restart_required,
+    }
 
 
 @app.post("/api/heartbeat")
@@ -755,6 +823,8 @@ async def upload_video(
     area_threshold: int = Form(50),
     max_age: int = Form(35),
     persistence: int = Form(50),
+    pipeline: str = Form("classical"),
+    conf_threshold: float = Form(0.25),
 ):
     if _restart_pending:
         raise HTTPException(
@@ -772,6 +842,10 @@ async def upload_video(
         raise HTTPException(status_code=400, detail="max_age must be 0–10000")
     if not (0 <= persistence <= 10_000):
         raise HTTPException(status_code=400, detail="persistence must be 0–10000")
+    if pipeline not in {"classical", "dl"}:
+        raise HTTPException(status_code=400, detail="pipeline must be 'classical' or 'dl'")
+    if not (0.0 <= conf_threshold <= 1.0):
+        raise HTTPException(status_code=400, detail="conf_threshold must be 0.0–1.0")
     # Reject filenames that contain path separators (e.g. "../secret")
     safe_name = Path(file.filename).name
     if not safe_name or safe_name != file.filename:
@@ -805,23 +879,71 @@ async def upload_video(
         saved_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail=f"Failed to save upload: {exc}")
 
+    # Fail fast: verify the file is a readable video before queuing a job.
+    _frame_count = 0
+    _large_video: dict | None = None
+    try:
+        _cap = cv2.VideoCapture(str(saved_path))
+        if not _cap.isOpened():
+            saved_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail="Could not read this video file — it may be corrupt or an unsupported format",
+            )
+        _ret, _first_frame = _cap.read()
+        if not _ret or _first_frame is None:
+            _cap.release()
+            saved_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=400,
+                detail="Could not read this video file — it may be corrupt or an unsupported format",
+            )
+        _frame_count = int(_cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        _cap.release()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        saved_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail=f"Could not read this video file: {exc}")
+
+    # Warn before queuing very large videos — let the user confirm first.
+    _file_size = saved_path.stat().st_size
+    if _frame_count > _LARGE_VIDEO_FRAMES or _file_size > _LARGE_VIDEO_BYTES:
+        _large_video = {
+            "frame_count": _frame_count,
+            "size_mb": round(_file_size / 1024 ** 2, 1),
+        }
+
     base_name = Path(file.filename).stem  # e.g. "worm_run1" from "worm_run1.mov"
-    params_json = json.dumps({
+    params_dict = {
         "keypoints_per_worm": keypoints_per_worm,
         "area_threshold": area_threshold,
         "max_age": max_age,
         "persistence": persistence,
-    })
+        "pipeline": pipeline,
+        "conf_threshold": conf_threshold,
+    }
+    if pipeline == "dl":
+        params_dict["model_weights"] = (
+            load_config().get("model_path", "")
+            or (str(DEFAULT_WEIGHTS) if DEFAULT_WEIGHTS.is_file() else "")
+        )
+    params_json = json.dumps(params_dict)
 
+    # Large videos are queued in 'pending_confirm' until the user confirms in the UI.
+    _job_status = "pending_confirm" if _large_video else "pending"
     with get_db() as conn:
         conn.execute(
             """INSERT INTO jobs
                (job_id, status, created_at, created_at_unix, original_filename, output_name, params_json)
-               VALUES (?, 'pending', ?, ?, ?, ?, ?)""",
-            (job_id, _now_iso(), _now_unix(), file.filename, base_name, params_json),
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (job_id, _job_status, _now_iso(), _now_unix(), file.filename, base_name, params_json),
         )
 
-    return {"job_id": job_id}
+    response: dict = {"job_id": job_id}
+    if _large_video:
+        response["large_video"] = _large_video
+    return response
 
 
 _UUID_RE = re.compile(
@@ -1126,6 +1248,8 @@ class _RerunIn(pydantic.BaseModel):
     area_threshold: int = 50
     max_age: int = 35
     persistence: int = 50
+    pipeline: str = "classical"
+    conf_threshold: float = 0.25
 
 
 @app.post("/jobs/{job_id}/rerun")
@@ -1183,12 +1307,25 @@ def rerun_job(job_id: str, body: _RerunIn):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Could not copy original video: {exc}")
 
-    params_json = json.dumps({
+    if body.pipeline not in {"classical", "dl"}:
+        raise HTTPException(status_code=400, detail="pipeline must be 'classical' or 'dl'")
+    if not (0.0 <= body.conf_threshold <= 1.0):
+        raise HTTPException(status_code=400, detail="conf_threshold must be 0.0–1.0")
+
+    params_dict = {
         "keypoints_per_worm": body.keypoints_per_worm,
         "area_threshold": body.area_threshold,
         "max_age": body.max_age,
         "persistence": body.persistence,
-    })
+        "pipeline": body.pipeline,
+        "conf_threshold": body.conf_threshold,
+    }
+    if body.pipeline == "dl":
+        params_dict["model_weights"] = (
+            load_config().get("model_path", "")
+            or (str(DEFAULT_WEIGHTS) if DEFAULT_WEIGHTS.is_file() else "")
+        )
+    params_json = json.dumps(params_dict)
 
     with get_db() as conn:
         conn.execute(
@@ -1199,6 +1336,19 @@ def rerun_job(job_id: str, body: _RerunIn):
         )
 
     return {"job_id": new_job_id}
+
+
+@app.post("/jobs/{job_id}/confirm")
+def confirm_large_video_job(job_id: str):
+    """Confirm queuing a large-video job that was waiting for user confirmation."""
+    with get_db() as conn:
+        result = conn.execute(
+            "UPDATE jobs SET status='pending' WHERE job_id=? AND status='pending_confirm'",
+            (job_id,),
+        )
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Job not found or already confirmed/cancelled")
+    return {"ok": True}
 
 
 @app.post("/cancel/{job_id}")
@@ -1244,6 +1394,116 @@ def cancel_job(job_id: str):
 # In packaged/production mode FastAPI serves everything from one process.
 # Must be mounted LAST so API routes take priority.
 # ---------------------------------------------------------------------------
+
+@app.get("/api/aggregate")
+def aggregate():
+    """Return per-worm and per-video tables across all completed jobs."""
+    per_worm, per_video = build_tables()
+    return {"per_worm": per_worm, "per_video": per_video}
+
+
+class _GroupIn(pydantic.BaseModel):
+    label: str
+    job_ids: list[str]
+
+
+class _CompareIn(pydantic.BaseModel):
+    groups: list[_GroupIn]
+
+
+@app.post("/api/compare")
+def compare_groups(body: _CompareIn):
+    """Compare motion stats across named groups of jobs, split by pipeline."""
+    import pandas as pd
+
+    per_worm, _ = build_tables()
+    if not per_worm:
+        return {"results": []}
+
+    pw = pd.DataFrame(per_worm)
+    results = []
+
+    for group in body.groups:
+        job_id_set = set(group.job_ids)
+        subset = pw[pw["job_id"].isin(job_id_set)]
+        if subset.empty:
+            continue
+        for pipeline, pl_df in subset.groupby("pipeline"):
+            n = len(pl_df)
+            row: dict = {"group": group.label, "pipeline": pipeline, "n": n}
+            for col in ("head", "midbody", "tail", "overall"):
+                row[f"{col}_mean"] = pl_df[col].mean()
+                row[f"{col}_std"]  = float(pl_df[col].std()) if n > 1 else 0.0
+            results.append(row)
+
+    return {"results": results}
+
+
+@app.post("/api/export/comparison")
+async def export_comparison(
+    chart_png:         UploadFile = File(...),
+    chart_svg:         UploadFile = File(...),
+    group_summary_csv: str        = Form(...),
+    per_worm_csv:      str        = Form(...),
+):
+    """Zip frontend-assembled chart images and CSVs and stream back as a download."""
+    import io
+    png_data = await chart_png.read()
+    svg_data = await chart_svg.read()
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("comparison_chart.png", png_data)
+        zf.writestr("comparison_chart.svg", svg_data)
+        zf.writestr("group_summary.csv",    group_summary_csv)
+        zf.writestr("per_worm.csv",         per_worm_csv)
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": 'attachment; filename="comparison_export.zip"'},
+    )
+
+
+@app.post("/api/export/single/{job_id}")
+async def export_single(
+    job_id:    str,
+    chart_png: UploadFile = File(...),
+    chart_svg: UploadFile = File(...),
+):
+    """Zip frontend chart images with the five per-job files already on disk and stream back."""
+    import io
+    if not _UUID_RE.match(job_id):
+        raise HTTPException(status_code=400, detail="Invalid job ID")
+
+    job_dir = OUTPUTS / job_id
+    if not job_dir.exists():
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    png_data = await chart_png.read()
+    svg_data = await chart_svg.read()
+
+    # Collect the five per-job file types; include what exists, skip what's missing.
+    on_disk: list[Path] = []
+    for pattern in ("*_summary.csv", "*_timeseries.csv", "*_motion_stats.json",
+                    "*_metadata.yaml", "*_keypoints.npz"):
+        matches = list(job_dir.glob(f"**/{pattern}"))
+        if matches:
+            on_disk.append(matches[0])
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("drilldown_chart.png", png_data)
+        zf.writestr("drilldown_chart.svg", svg_data)
+        for f in on_disk:
+            zf.write(f, arcname=f.name)
+
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{job_id}_export.zip"'},
+    )
+
 
 def _find_frontend_dist() -> Path | None:
     # PyInstaller bundle: data files land in sys._MEIPASS (_internal/ dir)
