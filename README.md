@@ -62,6 +62,11 @@ git clone https://github.com/vclab/worm-tracker.git
 cd worm-tracker
 ```
 
+Alternatively, you can download the project as a zip file and then do the following:
+
+1. Extract the zip file anywhere on your device.
+2. Go into the extracted folder, right-click anywhere and then select 'Open in Terminal'.
+
 ### 3. Download the tracking model (required — do this before running)
 
 The YOLO tracking model is **not** included in the download and must be fetched separately. The YOLO tracker will not work without it. Run the matching command for your system:
