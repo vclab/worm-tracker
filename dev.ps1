@@ -44,11 +44,16 @@ function Invoke-Venv {
 
         # Prefer Python 3.11 via the Windows Python Launcher
         if (Get-Command py -ErrorAction SilentlyContinue) {
-            $ver = py -3.11 --version 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                Write-Host "==> Creating venv with Python 3.11 (py -3.11) ..."
-                py -3.11 -m venv $VenvDir
-                $created = $true
+            try {
+                $ver = py -3.11 --version 2>$null
+                if ($LASTEXITCODE -eq 0) {
+                    Write-Host "==> Creating venv with Python 3.11 (py -3.11) ..."
+                    py -3.11 -m venv $VenvDir
+                    $created = $true
+                }
+            } catch {
+                # py launcher present but -3.11 unavailable (stderr noise, no such
+                # runtime, etc.) - fall through to the plain python fallback below.
             }
         }
 
