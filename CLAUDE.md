@@ -65,7 +65,9 @@ weights/                YOLO model (downloaded by `make weights`, git-ignored)
 
 Jobs are processed by a background queue worker thread, one at a time. Job state is persisted in `{outputs_dir}/jobs.db` (SQLite, WAL mode).
 
-In packaged mode (`sys.frozen=True`), a heartbeat watchdog shuts down the process if no browser ping is received for 20 s (60 s startup grace period). The watchdog defers shutdown while any job is `processing`.
+In packaged mode (`sys.frozen=True`), a heartbeat watchdog shuts down the process if no browser ping is received for 20 s (60 s startup grace period). The watchdog defers shutdown while any job is `processing`. The frontend pings `POST /api/heartbeat` every 5 s (only when running same-origin, so dev mode is unaffected).
+
+Running the app twice against the same outputs folder is guarded by an exclusive `flock` on `{outputs_dir}/wormtracker.lock` (POSIX). Windows skips locking. **Known bug**: the lifespan handler (`app/main.py:49-53`) catches the lock-acquisition exception and only logs it, so the second POSIX instance keeps serving the UI but never starts a queue worker; uploads to it queue as `pending` forever. The intended behavior is to refuse startup entirely.
 
 **`worm_tracker.py`** is the classical CV pipeline:
 
@@ -163,9 +165,23 @@ Windows-specific runtime behavior:
 
 ### CLI (all OSes, no UI)
 
+There is no unified CLI with a `--pipeline` flag; each pipeline has its own module entry point.
+
+**Classical pipeline** (no model needed):
 ```bash
-python -m app.worm_tracker input.mov output_dir --keypoints 15 --min-area 50 --max-age 35 --persistence 50
+python -m app.worm_tracker input.mov output_dir \
+    --keypoints 15 --min-area 50 --max-age 35 --persistence 50
 ```
+
+**YOLO pipeline** (requires a `.pt` weights file):
+```bash
+python -m app.dl_worm_tracker input.mov output_dir \
+    --model weights/worm_yolov8seg-<sha>.pt \
+    --keypoints 15 --min-area 50 --max-age 35 --persistence 50 \
+    --conf-threshold 0.25
+```
+
+Both CLIs write to `output_dir/{timestamp}_{output_name}/` and produce the same output-file layout as the web UI.
 
 ## Distribution
 
