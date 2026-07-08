@@ -67,7 +67,10 @@ Jobs are processed by a background queue worker thread, one at a time. Job state
 
 In packaged mode (`sys.frozen=True`), a heartbeat watchdog shuts down the process if no browser ping is received for 20 s (60 s startup grace period). The watchdog defers shutdown while any job is `processing`. The frontend pings `POST /api/heartbeat` every 5 s (only when running same-origin, so dev mode is unaffected).
 
-Running the app twice against the same outputs folder is guarded by an exclusive `flock` on `{outputs_dir}/wormtracker.lock` (POSIX). Windows skips locking. **Known bug**: the lifespan handler (`app/main.py:49-53`) catches the lock-acquisition exception and only logs it, so the second POSIX instance keeps serving the UI but never starts a queue worker; uploads to it queue as `pending` forever. The intended behavior is to refuse startup entirely.
+Running the app twice against the same outputs folder is guarded by an exclusive `flock` on `{outputs_dir}/wormtracker.lock`:
+
+- **POSIX (macOS, Linux)**: the second instance dies cleanly at startup. `_acquire_outputs_lock()` in the lifespan handler raises `RuntimeError`, uvicorn reports `lifespan.startup.failed`, and the process exits with a non-zero code. The launcher will already have opened a browser tab; that tab shows a "cannot connect" error because the socket is closed. The first instance is unaffected. Log line to grep for: `Another WormTracker process is already using {outputs_dir}. Close the other instance first.`
+- **Windows**: `fcntl` is unavailable so the lock is a no-op. Two full instances coexist and both start queue workers against the same `jobs.db`. SQLite WAL prevents DB corruption but they race on job pickup and status updates. Known gap; a Windows-native mutex (e.g. `CreateMutex` via `ctypes`) is on the roadmap.
 
 **`worm_tracker.py`** is the classical CV pipeline:
 

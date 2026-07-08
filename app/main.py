@@ -41,14 +41,21 @@ async def _lifespan(application: FastAPI):
     # Only the serving process runs lifespan; the reloader's module import does not.
     # Guard against hypothetical double-invocation within the same process.
     if not _worker_started:
+        # Acquire the outputs-folder lock first, outside the DB try/except.
+        # If another WormTracker is already running against this folder,
+        # _acquire_outputs_lock() raises RuntimeError; letting it propagate
+        # makes uvicorn report lifespan.startup.failed and exit, so the
+        # duplicate instance dies cleanly instead of half-running the UI
+        # without a queue worker. (POSIX only; Windows has no flock,
+        # so two Windows instances still coexist.)
+        _acquire_outputs_lock()
         _worker_started = True
         try:
-            _acquire_outputs_lock()
             init_db()
             migrate_existing_outputs()
         except Exception as _db_exc:
             logger.critical(
-                "Failed to initialize database at %s: %s — queue worker will not start",
+                "Failed to initialize database at %s: %s; queue worker will not start",
                 DB_PATH, _db_exc,
             )
         else:
