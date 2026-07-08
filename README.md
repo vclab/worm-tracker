@@ -38,7 +38,7 @@ A full-stack application for *Microfilaria motion analysis*. The system uses ske
 
 ParaTracker runs as a backend (FastAPI, port 8000) plus a frontend dev server (Vite, port 5173). Helper scripts handle installing dependencies, downloading the tracking model, freeing the ports, and starting both servers together: a `Makefile` for macOS/Linux and an equivalent `dev.ps1` for Windows.
 
-Follow the steps below **in order**. You only need to do the setup steps (1–4) once.
+Follow the steps below **in order**. You only need to do the setup steps (1 through 4) once.
 
 > For Windows commands, please use ***Powershell***.
 
@@ -46,8 +46,8 @@ Follow the steps below **in order**. You only need to do the setup steps (1–4)
 
 You need these installed on your computer before anything else:
 
-1. **Python 3.11** — <https://www.python.org/downloads/>
-2. **Node.js 18 or newer** (this also installs `npm`) — <https://nodejs.org>
+1. **Python 3.11**: <https://www.python.org/downloads/>
+2. **Node.js 18 or newer** (this also installs `npm`): <https://nodejs.org>
 3. **FFmpeg** (for video processing):
    - macOS: `brew install ffmpeg`
    - Linux: `apt install ffmpeg`
@@ -67,7 +67,7 @@ Alternatively, you can download the project as a zip file and then do the follow
 1. Extract the zip file anywhere on your device.
 2. Go into the extracted folder, right-click anywhere and then select 'Open in Terminal'.
 
-### 3. Download the tracking model (required — do this before running)
+### 3. Download the tracking model (required, do this before running)
 
 The YOLO tracking model is **not** included in the download and must be fetched separately. The YOLO tracker will not work without it. Run the matching command for your system:
 
@@ -81,9 +81,9 @@ make weights
 .\dev.ps1 weights
 ```
 
-This downloads the model from Google Drive and verifies it automatically. It only needs to be done once — the model is saved into the `weights/` folder and reused after that.
+This downloads the model from Google Drive and verifies it automatically. It only needs to be done once; the model is saved into the `weights/` folder and reused after that.
 
-> If you skip this step, using the YOLO tracker on Windows will fail because it can't find the model. (On macOS/Linux, `make run` will download it for you if you forgot — but it's cleaner to do it here first.)
+> If you skip this step, using the YOLO tracker on Windows will fail because it can't find the model. (On macOS/Linux, `make run` will download it for you if you forgot, but it's cleaner to do it here first.)
 
 ### 4. Start the app
 
@@ -172,15 +172,15 @@ The DMG is Apple Silicon only (arm64). It is ad-hoc signed but NOT notarized (we
 
 ### Manual run (advanced)
 
-If you'd rather start the servers yourself instead of using the scripts, run the backend and frontend in two terminals. This skips the automatic port-cleanup and clean shutdown the scripts provide — and you must have already downloaded the model (step 3).
+If you'd rather start the servers yourself instead of using the scripts, run the backend and frontend in two terminals. This skips the automatic port-cleanup and clean shutdown the scripts provide, and you must have already downloaded the model (step 3).
 
 ```bash
-# Terminal 1 — backend
+# Terminal 1: backend
 source ~/venv/worm-tracker/bin/activate      # macOS/Linux
 # .\venv\Scripts\activate                    # Windows
 uvicorn app.main:app --reload --port 8000
 
-# Terminal 2 — frontend
+# Terminal 2: frontend
 cd frontend
 npm run dev
 ```
@@ -220,46 +220,46 @@ If you double-click the app while it is already running, it brings the existing 
 
 ParaTracker lets you export results in a few places. The two **Metrics** page exports produce analysis-ready ZIPs; the **History** page offers per-job downloads of the raw tracking outputs.
  
-### Metrics page — Condition comparison export
+### Metrics page: Condition comparison export
  
 The **Export** button under *Condition comparison* downloads a ZIP for all the groups you've built. It contains:
  
-- **Grouped comparison chart** — as both **PNG** and **SVG**.
-- **`group_summary.csv`** — one row per group × pipeline, with the worm count (`n`) and the mean and standard deviation for head, midbody, and tail motion.
-- **`per_worm.csv`** — the raw per-worm rows behind those averages: group label, video, pipeline, worm ID, and head / midbody / tail / overall motion, for every worm in every group.
-This export is the group-level result plus the underlying data, so you can recompute or dig into the numbers yourself. It does not include per-video metadata or raw keypoints — use the single-video export for those.
+- **Grouped comparison chart**: as both **PNG** and **SVG**.
+- **`group_summary.csv`**: one row per group × pipeline, with the worm count (`n`) and the mean and standard deviation for head, midbody, and tail motion.
+- **`per_worm.csv`**: the raw per-worm rows behind those averages: group label, video, pipeline, worm ID, and head / midbody / tail / overall motion, for every worm in every group.
+This export is the group-level result plus the underlying data, so you can recompute or dig into the numbers yourself. It does not include per-video metadata or raw keypoints; use the single-video export for those.
  
-### Metrics page — Single video analysis export
+### Metrics page: Single video analysis export
  
 The **Export** button under *Single video analysis* downloads a ZIP for the currently selected video. It contains:
  
-- **Drill-down chart** — as both **PNG** and **SVG**.
+- **Drill-down chart**: as both **PNG** and **SVG**.
 - That video's **summary CSV**, **timeseries CSV**, **`motion_stats.json`**, **metadata YAML**, and **`*_keypoints.npz`** (the raw keypoints).
 This is the complete, reproducible package for a single video.
 
-### History page — per-job downloads
+### History page: per-job downloads
  
 Each job row in the **History** page has its own action buttons:
  
-- **View** — opens the tracked result for that job in the app (the annotated video / comparison view).
-- **Video** — downloads the tracked output video (H.264 MP4).
-- **ZIP** — downloads the job's **package ZIP** (`{output_name}.zip`), containing:
+- **View**: opens the tracked result for that job in the app (the annotated video / comparison view).
+- **Video**: downloads the tracked output video (H.264 MP4).
+- **ZIP**: downloads the job's **package ZIP** (`{output_name}.zip`), containing:
   | File | Description |
   | --- | --- |
   | `*_original.*` | Copy of the originally uploaded video file |
   | `*_tracked.mp4` | H.264-encoded video annotated with colored skeleton keypoints and worm IDs |
-  | `*.yaml` | Metadata — git version, timestamp, tracking parameters used, frame count |
+  | `*.yaml` | Metadata: git version, timestamp, tracking parameters used, frame count |
   | `*_keypoints.npz` | NumPy archive of per-worm skeleton keypoint coordinates over time (`[y, x]` per keypoint per frame; partial/edge-touching worms stored under a `partial_` key prefix) |
   | `*_motion_stats.json` | Per-worm motion values (overall, head, mid-body, tail) and aggregate stats |
   
-  The package ZIP does **not** include the CSV files — those are in the separate `_data.zip` served by the "CSV" button.
-- **CSV** — downloads the job's **data ZIP** (`{output_name}_data.zip`), containing the per-worm summary CSV and the per-frame timeseries CSV.
+  The package ZIP does **not** include the CSV files; those are in the separate `_data.zip` served by the "CSV" button.
+- **CSV**: downloads the job's **data ZIP** (`{output_name}_data.zip`), containing the per-worm summary CSV and the per-frame timeseries CSV.
   | File | Description |
   | --- | --- |
   | `*_summary.csv` | One row per worm: mean motion values (overall, head, mid-body, tail) |
   | `*_timeseries.csv` | One row per frame window: per-worm head/mid-body/tail motion over time |
   
-- **Delete** — removes the job and its outputs.
+- **Delete**: removes the job and its outputs.
 
   | File | Format | Contents |
   |---|---|---|
