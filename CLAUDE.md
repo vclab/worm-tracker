@@ -67,10 +67,13 @@ Jobs are processed by a background queue worker thread, one at a time. Job state
 
 In packaged mode (`sys.frozen=True`), a heartbeat watchdog shuts down the process if no browser ping is received for 20 s (60 s startup grace period). The watchdog defers shutdown while any job is `processing`. The frontend pings `POST /api/heartbeat` every 5 s (only when running same-origin, so dev mode is unaffected).
 
-Running the app twice against the same outputs folder is guarded by an exclusive `flock` on `{outputs_dir}/wormtracker.lock`:
+Running the app twice against the same outputs folder is handled at two layers:
 
-- **POSIX (macOS, Linux)**: the second instance dies cleanly at startup. `_acquire_outputs_lock()` in the lifespan handler raises `RuntimeError`, uvicorn reports `lifespan.startup.failed`, and the process exits with a non-zero code. The launcher will already have opened a browser tab; that tab shows a "cannot connect" error because the socket is closed. The first instance is unaffected. Log line to grep for: `Another WormTracker process is already using {outputs_dir}. Close the other instance first.`
-- **Windows**: `fcntl` is unavailable so the lock is a no-op. Two full instances coexist and both start queue workers against the same `jobs.db`. SQLite WAL prevents DB corruption but they race on job pickup and status updates. Known gap; a Windows-native mutex (e.g. `CreateMutex` via `ctypes`) is on the roadmap.
+1. **Launcher pre-check (all OSes, packaged app)**: `launcher.py` reads `{outputs_dir}/wormtracker.port` (written by the primary at startup, cleaned up on exit via `atexit`). If the file exists and the port responds to a TCP probe (500 ms timeout), the launcher opens `http://127.0.0.1:<port>` in the browser (bringing the existing tab/window forward on most browsers) and exits without starting uvicorn. If the port file is stale (crash left it behind), the probe fails, the launcher removes the file and proceeds as a normal cold start. Helpers: `_find_running_primary()`, `_write_port_file()`, `_delete_port_file()` in `launcher.py`.
+
+2. **Lifespan flock (POSIX only, defence in depth)**: if two launchers race past the pre-check simultaneously, `_acquire_outputs_lock()` in the lifespan handler raises `RuntimeError` for the loser. Uvicorn reports `lifespan.startup.failed` and exits with a non-zero code. Log line: `Another WormTracker process is already using {outputs_dir}. Close the other instance first.`
+
+**Windows**: the launcher pre-check works (no OS-specific dependency), but if a race gets past it, `fcntl` is unavailable so both instances continue. Two full instances would then coexist against the same `jobs.db`; SQLite WAL prevents corruption but they race on job pickup. A Windows-native mutex (e.g. `CreateMutex` via `ctypes`) is on the roadmap for full parity.
 
 **`worm_tracker.py`** is the classical CV pipeline:
 
@@ -284,6 +287,7 @@ Contents: `{"outputs_dir": "...", "model_path": "..."}`. The outputs directory i
 
 - `{outputs_dir}/jobs.db`: SQLite job database (WAL mode, one DB per outputs folder). Tracks job status, params, timestamps, output paths.
 - `{outputs_dir}/wormtracker.lock`: exclusive `flock` held for the lifetime of the running process; guarantees a single instance per outputs folder on POSIX. The kernel releases it on process death (even SIGKILL). Windows skips locking; SQLite WAL still protects the DB.
+- `{outputs_dir}/wormtracker.port`: TCP port the running primary is listening on. Written by `launcher.py` right after socket bind, removed via `atexit` on clean shutdown. Used by subsequent launches to detect an existing instance and open its URL instead of starting a duplicate. A stale file left over from a crash is auto-cleaned on the next launch when the TCP probe fails.
 - `{outputs_dir}/uploads/`: transient upload staging. Files named `{job_id}__{original_filename}`. Persist across restarts to survive a crash mid-upload; usually cleaned up as jobs finish or are cancelled.
 - `{outputs_dir}/{job_id}/{timestamp}_{output_name}/`: one directory per job (the `output_subfolder` column in `jobs.db`). Contains all output files documented under "Output Formats" below.
 

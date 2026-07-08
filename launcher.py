@@ -5,6 +5,7 @@ Finds a free port, starts the FastAPI server via uvicorn, then opens
 the browser. This is the entry point for the packaged .app bundle.
 """
 
+import atexit
 import multiprocessing
 import os
 import socket
@@ -12,15 +13,81 @@ import sys
 import threading
 import time
 import webbrowser
+from pathlib import Path
 
 # Env-var key used to ensure the browser is opened exactly once even if
 # a spawned subprocess re-enters this module before freeze_support() fires.
 _LAUNCHED_KEY = "_WORMTRACKER_LAUNCHED"
 
+# Timeout for the "is the primary reachable?" probe. Kept short so a
+# stale port file does not delay a legitimate cold start.
+_PROBE_TIMEOUT_S = 0.5
+
 
 def _open_browser(port: int, delay: float = 2.0) -> None:
     time.sleep(delay)
     webbrowser.open(f"http://127.0.0.1:{port}")
+
+
+def _port_file_path() -> Path | None:
+    """Return the path to `{outputs_dir}/wormtracker.port`, or None if the
+    config cannot be loaded (which we treat as "no primary detectable").
+    """
+    try:
+        from app.config import load_config
+        return Path(load_config()["outputs_dir"]) / "wormtracker.port"
+    except Exception:
+        return None
+
+
+def _find_running_primary() -> str | None:
+    """If a primary WormTracker is already running against the same outputs
+    folder, return its URL. Otherwise return None and clean up any stale
+    port file left behind by a previous crashed instance.
+    """
+    pf = _port_file_path()
+    if pf is None or not pf.exists():
+        return None
+    try:
+        port = int(pf.read_text().strip())
+    except (ValueError, OSError):
+        return None
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(_PROBE_TIMEOUT_S)
+        try:
+            probe.connect(("127.0.0.1", port))
+        except OSError:
+            # Nothing listening on that port: the file is stale. Remove
+            # so subsequent launches do not keep tripping on it.
+            try:
+                pf.unlink()
+            except OSError:
+                pass
+            return None
+    return f"http://127.0.0.1:{port}"
+
+
+def _write_port_file(port: int) -> None:
+    pf = _port_file_path()
+    if pf is None:
+        return
+    try:
+        pf.parent.mkdir(parents=True, exist_ok=True)
+        pf.write_text(str(port))
+    except OSError:
+        # Not fatal: second-instance detection will fall back to the
+        # lifespan flock error and a "cannot connect" browser tab.
+        pass
+
+
+def _delete_port_file() -> None:
+    pf = _port_file_path()
+    if pf is None:
+        return
+    try:
+        pf.unlink()
+    except OSError:
+        pass
 
 
 def main() -> None:
@@ -42,6 +109,20 @@ def main() -> None:
         if bundle_dir not in sys.path:
             sys.path.insert(0, bundle_dir)
 
+    # Second-instance short-circuit: if a primary WormTracker is already
+    # running against the same outputs folder, open its URL in the browser
+    # (which brings the existing window/tab forward on most browsers) and
+    # exit before starting a second uvicorn. Without this the second
+    # instance would die on flock contention in the lifespan handler, and
+    # the user would be left staring at a "cannot connect" browser tab.
+    # Only runs for user-initiated launches, not multiprocessing subprocess
+    # re-entries.
+    if open_browser:
+        primary_url = _find_running_primary()
+        if primary_url is not None:
+            webbrowser.open(primary_url)
+            return
+
     # Bind a socket now and keep it open to eliminate the race window between
     # finding a free port and uvicorn binding the same address.
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -49,6 +130,13 @@ def main() -> None:
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
     sock.listen(128)
+
+    # Advertise our port so a subsequent launch can focus this window.
+    # The lifespan handler in app.main will still enforce the flock, so if
+    # two launchers race and both write here, whichever loses the flock
+    # exits and its stale write is cleaned up on the next launch.
+    _write_port_file(port)
+    atexit.register(_delete_port_file)
 
     if open_browser:
         browser_thread = threading.Thread(
