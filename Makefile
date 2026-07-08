@@ -1,8 +1,12 @@
-.PHONY: dist build run clean clean-python clean-python-env clean-frontend clean-build clean-weights check-npm venv weights
+.PHONY: dist build run clean clean-python clean-python-env clean-frontend clean-build clean-weights check-npm check-create-dmg venv weights dmg release
 
 SHELL := /bin/bash
 VENV := $(HOME)/venv/worm-tracker
 PIP_STAMP := $(VENV)/.requirements-stamp
+
+# Version is read from the PyInstaller spec so there is one source of truth.
+# Update CFBundleShortVersionString in worm_tracker.spec to bump.
+VERSION := $(shell grep 'CFBundleShortVersionString' worm_tracker.spec | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')
 
 # YOLO weights — content-hashed filename so the SHA256 in the path is the
 # integrity check. To swap models, change both WEIGHTS_SHA256 and
@@ -99,3 +103,31 @@ clean-build:
 
 clean-weights:
 	rm -rf $(WEIGHTS_DIR)
+
+# ---------------------------------------------------------------------------
+# Release packaging (macOS DMG)
+# ---------------------------------------------------------------------------
+
+check-create-dmg:
+	@if ! command -v create-dmg >/dev/null 2>&1; then \
+		echo ""; \
+		echo "ERROR: create-dmg is not installed."; \
+		echo "  Install with: brew install create-dmg"; \
+		echo ""; \
+		exit 1; \
+	fi
+
+# Package the already-built dist/WormTracker.app into a DMG. Assumes
+# `make dist` has already run (build.sh also ad-hoc signs the app).
+dmg: check-create-dmg
+	@if [ ! -d dist/WormTracker.app ]; then \
+		echo "ERROR: dist/WormTracker.app not found. Run 'make dist' first."; \
+		exit 1; \
+	fi
+	./scripts/make_dmg.sh dist/WormTracker.app dist $(VERSION)
+
+# Full release: clean rebuild + sign (via build.sh) + DMG.
+release: dist
+	$(MAKE) dmg
+	@echo ""
+	@echo "Release artifact: dist/WormTracker-$(VERSION)-arm64.dmg"

@@ -21,6 +21,9 @@ cd "$PROJECT_DIR"
 echo "==> Running PyInstaller"
 pyinstaller worm_tracker.spec --clean --noconfirm
 
+echo "==> Ad-hoc signing the app bundle"
+"$PROJECT_DIR/scripts/sign_app.sh" "$PROJECT_DIR/dist/WormTracker.app"
+
 echo ""
 echo "Build complete!"
 echo "  App bundle : dist/WormTracker.app"
