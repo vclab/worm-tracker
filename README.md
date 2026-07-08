@@ -141,25 +141,34 @@ You won't normally need these, but they're available.
 
 ---
 
-### Standalone macOS App (no setup on the target machine)
+### Building a self-contained app (macOS)
 
-To build a self-contained `WormTracker.app` (it bundles FFmpeg, so the machine you run it on needs no Python or Node):
+To produce a `WormTracker.app` that runs on machines with no Python or Node installed (FFmpeg is bundled):
 
 ```bash
 make dist
 ```
 
-This cleans, sets up the environment, downloads the model, and builds the bundle. Launch it with:
+This runs a full clean rebuild and ad-hoc signs the `.app`. Launch it with:
 
 ```bash
-open dist/WormTracker.app
+open dist/WormTracker.app       # normal launch
+dist/WormTracker/WormTracker    # folder-mode binary; shows server logs in the terminal
 ```
 
-Or run the binary directly to see server logs:
+To also package the `.app` into a DMG for distribution (this is what we upload to GitHub Releases):
 
 ```bash
-dist/WormTracker/WormTracker
+make release
 ```
+
+Produces `dist/WormTracker-<version>-arm64.dmg`. `make release` is `make dist` followed by `make dmg`; use `make dmg` on its own to repackage an existing `.app` without rebuilding.
+
+The DMG is Apple Silicon only (arm64). It is ad-hoc signed but NOT notarized (we have not paid Apple's yearly Developer Program fee since this is free research software). The DMG bundles a "READ ME FIRST.txt" that walks first-launch users through the required right-click + Open step to bypass Gatekeeper.
+
+**Windows installer**: on the roadmap. Windows users currently need to build from source (steps 1 through 4 above).
+
+**YOLO pipeline in the packaged app**: the model file is not yet bundled inside the `.app` (planned for the next release). For now, the packaged app supports only the classical pipeline out of the box. To use YOLO, build from source and download the weights via `make weights`.
 
 ### Manual run (advanced)
 
@@ -191,6 +200,12 @@ npm run dev
    - **Motion Analysis**: per-worm heatmap and timeline chart (overall, head, mid-body, tail motion)
 7. Use **Re-run with new parameters** to reprocess the same file with adjusted parameters
 8. Use **Run on another file** to reset and process a new video
+
+### Quitting the app (packaged .app only)
+
+Close the browser tab and the app shuts down automatically about 20 seconds later. If a job is still processing, the server waits for it to finish before quitting.
+
+If you double-click the app while it is already running, it brings the existing browser tab forward instead of starting a second copy.
 
 ### Tracking Parameters
 
@@ -283,12 +298,32 @@ with np.load("*_keypoints.npz") as npz:
 | Video won't play in browser | Install FFmpeg (see prerequisites) |
 | CORS / network errors | Make sure backend is running at `http://127.0.0.1:8000` |
 | Port already in use | `npm run dev -- --port 5174` |
+| "app is damaged" or "cannot verify developer" on macOS | Right-click the app, choose Open, then click Open in the dialog. Only needed on first launch. See the "READ ME FIRST.txt" bundled in the DMG. |
+| Packaged app launches but no browser tab appears | Check that a default browser is set. The port the app is using is written to `~/Documents/WormTracker/wormtracker.port`; open `http://127.0.0.1:<that-port>` manually. |
+| Double-clicked the app and nothing seems to happen | It is already running. It brought the existing browser tab forward; look at your open tabs. |
+| Server keeps running after closing the browser | Give it about 20 seconds (heartbeat watchdog). Force-quit from Activity Monitor if needed. |
 
 ### CLI Usage (no UI)
 
+Two separate module entry points; there is no unified `--pipeline` flag.
+
+**Classical pipeline** (no model needed):
+
 ```bash
-python -m app.worm_tracker input.mov output_dir --keypoints 15 --min-area 50 --max-age 35 --persistence 50
+python -m app.worm_tracker input.mov output_dir \
+    --keypoints 15 --min-area 50 --max-age 35 --persistence 50
 ```
+
+**YOLO pipeline** (needs a weights file, e.g. from `make weights`):
+
+```bash
+python -m app.dl_worm_tracker input.mov output_dir \
+    --model weights/worm_yolov8seg-<sha>.pt \
+    --keypoints 15 --min-area 50 --max-age 35 --persistence 50 \
+    --conf-threshold 0.25
+```
+
+Both write to `output_dir/{timestamp}_{output_name}/` and produce the same output-file layout as the web UI.
 
 ## Authors
 
