@@ -33,9 +33,15 @@ datas = [
 # Hidden imports that PyInstaller's static analysis misses
 # ---------------------------------------------------------------------------
 hidden_imports = [
-    # App modules — listed explicitly so PyInstaller traces all their imports
+    # App modules — listed explicitly so PyInstaller traces all their imports.
+    # dl_worm_tracker is imported lazily inside a function in app.main
+    # (guarded by pipeline selection), so it needs an explicit entry to
+    # avoid being dropped by static analysis.
     "app.main",
     "app.worm_tracker",
+    "app.dl_worm_tracker",
+    "app.aggregation",
+    "app.config",
     # uvicorn internals
     "uvicorn.logging",
     "uvicorn.loops",
@@ -76,6 +82,9 @@ hidden_imports = [
     "yaml",
     "pydantic",
     "tqdm",
+    # pandas is required by app.aggregation and by CSV export in app.main;
+    # do NOT add it to excludes below.
+    "pandas",
     # Python standard library items sometimes missed
     "sqlite3",
     "csv",
@@ -102,7 +111,6 @@ a = Analysis(
         "jupyter",
         "notebook",
         "pytest",
-        "pandas",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
