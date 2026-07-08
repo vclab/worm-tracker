@@ -1,4 +1,4 @@
-.PHONY: dist build run clean clean-python clean-python-env clean-frontend clean-build clean-weights check-npm check-create-dmg venv weights dmg release
+.PHONY: dist build run clean clean-python clean-python-env clean-frontend clean-build clean-weights check-npm venv weights dmg release
 
 SHELL := /bin/bash
 VENV := $(HOME)/venv/worm-tracker
@@ -108,18 +108,10 @@ clean-weights:
 # Release packaging (macOS DMG)
 # ---------------------------------------------------------------------------
 
-check-create-dmg:
-	@if ! command -v create-dmg >/dev/null 2>&1; then \
-		echo ""; \
-		echo "ERROR: create-dmg is not installed."; \
-		echo "  Install with: brew install create-dmg"; \
-		echo ""; \
-		exit 1; \
-	fi
-
 # Package the already-built dist/WormTracker.app into a DMG. Assumes
 # `make dist` has already run (build.sh also ad-hoc signs the app).
-dmg: check-create-dmg
+# Uses hdiutil (built into macOS), no extra deps required.
+dmg:
 	@if [ ! -d dist/WormTracker.app ]; then \
 		echo "ERROR: dist/WormTracker.app not found. Run 'make dist' first."; \
 		exit 1; \

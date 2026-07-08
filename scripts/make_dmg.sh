@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 # make_dmg.sh: package a built .app bundle into a distributable DMG.
 #
-# Layout: drag-to-Applications window with the app icon on the left, an
-# Applications alias on the right, and a "READ ME FIRST.txt" below with
-# first-run instructions (the right-click and Open step, needed because
-# we ship without a Developer ID cert so Gatekeeper blocks a plain
-# double-click on first launch).
+# Uses plain hdiutil (built into macOS, no Homebrew dependency). The DMG
+# contains the app, a symlink to /Applications for drag-to-install, and
+# a "READ ME FIRST.txt" with first-launch instructions.
 #
-# Requires: create-dmg (brew install create-dmg)
+# We deliberately avoid create-dmg here: its final unmount step fails
+# intermittently on macOS 13+ with "Resource busy" because Finder or
+# fseventsd holds a handle on the mounted RW volume after the layout
+# AppleScript runs. `hdiutil create -srcfolder` bypasses the whole
+# mount/unmount cycle by building the compressed DMG directly from a
+# staging directory.
+#
+# Tradeoff: no custom icon positions or background image. The Applications
+# symlink still gives a working drag-to-install workflow.
 #
 # Usage: make_dmg.sh <path-to-app-bundle> <output-dir> [version]
-#   version defaults to the CFBundleShortVersionString read from the
-#   app's Info.plist.
 
 set -euo pipefail
 
@@ -24,12 +28,6 @@ if [ ! -d "$APP" ]; then
     exit 1
 fi
 
-if ! command -v create-dmg >/dev/null 2>&1; then
-    echo "ERROR: create-dmg is not installed. Install it with:" >&2
-    echo "  brew install create-dmg" >&2
-    exit 1
-fi
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 APP_NAME="$(basename "$APP" .app)"
 
@@ -39,32 +37,27 @@ fi
 
 DMG_NAME="${APP_NAME}-${VERSION}-arm64.dmg"
 DMG_PATH="${OUTDIR}/${DMG_NAME}"
+VOL_NAME="${APP_NAME} ${VERSION}"
 
-# Stage the DMG source in a temp dir so create-dmg gets exactly the
-# files we want and nothing else (avoids picking up stray files if the
-# output dir has other artifacts).
 STAGE=$(mktemp -d -t wormtracker_dmg.XXXXXX)
 trap 'rm -rf "$STAGE"' EXIT
 
+echo "==> Staging DMG contents"
 cp -R "$APP" "$STAGE/"
 cp "$SCRIPT_DIR/READ ME FIRST.txt" "$STAGE/"
+ln -s /Applications "$STAGE/Applications"
 
-rm -f "$DMG_PATH"
 mkdir -p "$OUTDIR"
+rm -f "$DMG_PATH"
 
 echo "==> Building DMG: $DMG_PATH"
-create-dmg \
-    --volname "$APP_NAME $VERSION" \
-    --window-pos 200 120 \
-    --window-size 640 400 \
-    --icon-size 100 \
-    --icon "$APP_NAME.app" 160 190 \
-    --hide-extension "$APP_NAME.app" \
-    --app-drop-link 480 190 \
-    --icon "READ ME FIRST.txt" 320 320 \
-    --no-internet-enable \
-    "$DMG_PATH" \
-    "$STAGE"
+hdiutil create \
+    -volname "$VOL_NAME" \
+    -srcfolder "$STAGE" \
+    -ov \
+    -format UDZO \
+    -imagekey zlib-level=9 \
+    "$DMG_PATH"
 
 echo ""
 echo "DMG built: $DMG_PATH"
