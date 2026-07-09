@@ -161,6 +161,32 @@ Or run the binary directly to see server logs:
 dist/WormTracker/WormTracker
 ```
 
+### Standalone Windows App (no setup on the target machine)
+
+To build a self-contained `ParaTracker.exe` (it bundles FFmpeg, so the machine you run it on needs no Python or Node), first make sure you've done steps 1–3 above (venv created, weights downloaded), then run:
+
+```powershell
+.\build_windows.ps1
+```
+
+This builds the frontend and packages the app with PyInstaller into `dist\ParaTracker\`. Launch it by double-clicking:
+
+```
+dist\ParaTracker\ParaTracker.exe
+```
+
+It starts the server in the background and opens your browser automatically -- no console window needed.
+
+#### Running the app from a downloaded zip
+
+If someone sent you a `ParaTracker` zip instead of you building it yourself:
+
+1. Download the zip file.
+2. Extract it anywhere on your computer.
+3. Open the extracted `ParaTracker` folder and double-click `ParaTracker.exe`.
+
+The app starts a local server in the background and opens your browser automatically — no installation or setup needed. Since the app isn't code-signed, Windows SmartScreen will likely show "Windows protected your PC" on first launch — click **More info -> Run anyway** to continue.
+
 ### Manual run (advanced)
 
 If you'd rather start the servers yourself instead of using the scripts, run the backend and frontend in two terminals. This skips the automatic port-cleanup and clean shutdown the scripts provide — and you must have already downloaded the model (step 3).
