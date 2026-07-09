@@ -23,7 +23,21 @@ def _open_browser(port: int, delay: float = 2.0) -> None:
     webbrowser.open(f"http://127.0.0.1:{port}")
 
 
+def _silence_stdio() -> None:
+    # A windowed PyInstaller build (console=False) has no attached console, so
+    # sys.stdout/stderr are None. Anything that writes to them or checks them
+    # (print(), uvicorn's log formatter calling .isatty(), tqdm, ...) crashes
+    # with AttributeError unless we give them a real, harmless stream instead.
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")
+
+
 def main() -> None:
+    if getattr(sys, "frozen", False):
+        _silence_stdio()
+
     # On macOS, Python's multiprocessing uses the 'spawn' start method, which
     # re-runs the frozen executable for every spawned subprocess (used internally
     # by numpy, scipy, and others).  Without the guards below, each subprocess

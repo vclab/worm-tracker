@@ -104,12 +104,10 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         "tkinter",
-        "matplotlib",
         "IPython",
         "jupyter",
         "notebook",
         "pytest",
-        "pandas",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
