@@ -111,7 +111,14 @@ APP_DIR = Path(__file__).resolve().parent
 # so the SHA256 in the path is the integrity check. Keep DEFAULT_WEIGHTS_SHA256
 # in sync with WEIGHTS_SHA256 in the Makefile.
 DEFAULT_WEIGHTS_SHA256 = "f7712cb708c94a788f36fe8cbf9c1f479e399286ab3c9afbbb318e4c6d9f80fe"
-DEFAULT_WEIGHTS = APP_DIR.parent / "weights" / f"worm_yolov8seg-{DEFAULT_WEIGHTS_SHA256}.pt"
+
+# Packaged app: PyInstaller extracts data files under sys._MEIPASS. Source run:
+# weights/ lives next to the app package at the project root.
+if getattr(sys, "frozen", False):
+    _WEIGHTS_DIR = Path(sys._MEIPASS) / "weights"
+else:
+    _WEIGHTS_DIR = APP_DIR.parent / "weights"
+DEFAULT_WEIGHTS = _WEIGHTS_DIR / f"worm_yolov8seg-{DEFAULT_WEIGHTS_SHA256}.pt"
 
 # ---------------------------------------------------------------------------
 # Paths — outputs and DB are user-configurable; uploads live alongside outputs
