@@ -25,6 +25,9 @@ datas = [
     (str(PROJECT / "frontend" / "dist"), "frontend_dist"),
     # App Python package (worm_tracker.py, etc.)
     (str(PROJECT / "app"), "app"),
+    # YOLO weights: resolved at runtime via sys._MEIPASS / "weights"
+    # (see DEFAULT_WEIGHTS in app/main.py)
+    (str(PROJECT / "weights"), "weights"),
     # imageio_ffmpeg ships its own static ffmpeg binary — include the whole package
     *([(IMAGEIO_FFMPEG_DIR, "imageio_ffmpeg")] if IMAGEIO_FFMPEG_DIR else []),
 ]
@@ -160,7 +163,7 @@ app_bundle = BUNDLE(
     info_plist={
         "NSHighResolutionCapable": True,
         "NSPrincipalClass": "NSApplication",
-        "CFBundleShortVersionString": "1.4.0",
-        "CFBundleVersion": "1.4.0",
+        "CFBundleShortVersionString": "1.4.1",
+        "CFBundleVersion": "1.4.1",
     },
 )

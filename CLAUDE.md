@@ -206,7 +206,7 @@ Design notes:
 
 Version is read from `CFBundleShortVersionString` in `worm_tracker.spec`; bump there to change the version everywhere.
 
-**Known gap: YOLO weights are NOT bundled.** `DEFAULT_WEIGHTS = APP_DIR.parent / "weights" / ...` in `app/main.py:107`. In dev mode `APP_DIR.parent` is the project root (`weights/` populated by `make weights`). In packaged mode it is `sys._MEIPASS`, but `worm_tracker.spec` does not include `weights/` in `datas`. Consequence: classical pipeline works out of the box; YOLO fails until the user manually sets `model_path` in the config file. Fix: add `(str(PROJECT / "weights"), "weights")` to `datas` in the spec.
+**YOLO weights are bundled** (since v1.4.1). `worm_tracker.spec` includes `(str(PROJECT / "weights"), "weights")` in `datas`, and `app/main.py` branches `DEFAULT_WEIGHTS` on `sys.frozen`: `sys._MEIPASS/weights/` when packaged, `APP_DIR.parent/weights/` when running from source. Both classical and YOLO pipelines work out of the box in the DMG. A user can still override the default by setting `model_path` in Settings (⚙) to point at a different `.pt` file.
 
 ### Windows (not yet implemented, roadmap)
 
