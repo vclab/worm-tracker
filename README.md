@@ -170,6 +170,40 @@ The DMG is Apple Silicon only (arm64). It is ad-hoc signed but NOT notarized (we
 
 **YOLO pipeline in the packaged app**: the model file is not yet bundled inside the `.app` (planned for the next release). For now, the packaged app supports only the classical pipeline out of the box. To use YOLO, build from source and download the weights via `make weights`.
 
+### Uninstalling
+
+A full uninstall requires deleting three things: the app itself, its config directory, and its outputs directory. Trashing only the app (or running the source-tree `make clean` targets) leaves your job history, results, and settings on disk.
+
+**macOS:**
+
+```bash
+rm -rf /Applications/WormTracker.app                # the app
+rm -rf ~/Library/Application\ Support/WormTracker   # config (settings, YOLO model path)
+rm -rf ~/Documents/WormTracker                      # outputs: jobs.db, tracked videos, keypoints, CSVs, uploads
+```
+
+**Windows** (no packaged installer yet; run from source):
+
+```powershell
+Remove-Item -Recurse -Force "$env:APPDATA\WormTracker"                 # config
+Remove-Item -Recurse -Force "$env:USERPROFILE\Documents\WormTracker"   # outputs
+```
+
+**Linux:**
+
+```bash
+rm -rf ~/.config/WormTracker                        # config
+rm -rf ~/Documents/WormTracker                      # outputs
+```
+
+**If you moved your outputs directory** via Settings (⚙ in the UI) to a custom location (e.g. an external drive), delete that location instead of `~/Documents/WormTracker`. The path is stored under `outputs_dir` in `config.json` inside the config directory shown above; open that file before deleting the config directory if you're not sure.
+
+**If you built from source**, you may also want to remove:
+
+- Python virtual environment: `make clean-python-env` (macOS/Linux, removes `~/venv/worm-tracker/`) or `.\dev.ps1 clean-python-env` (Windows, removes `.\venv\` in the project folder).
+- Downloaded YOLO model: `make clean-weights` or `.\dev.ps1 clean-weights` (removes `weights/` in the project folder).
+- The cloned project folder itself: just delete the `worm-tracker` directory.
+
 ### Manual run (advanced)
 
 If you'd rather start the servers yourself instead of using the scripts, run the backend and frontend in two terminals. This skips the automatic port-cleanup and clean shutdown the scripts provide, and you must have already downloaded the model (step 3).
