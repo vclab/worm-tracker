@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for WormTracker.
+PyInstaller spec for ParaTracker.
 
 Build with:
     pyinstaller worm_tracker.spec
@@ -128,7 +128,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="WormTracker",
+    name="ParaTracker",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -149,18 +149,18 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="WormTracker",
+    name="ParaTracker",
 )
 
 app_bundle = BUNDLE(
     coll,
-    name="WormTracker.app",
+    name="ParaTracker.app",
     icon=str(PROJECT / "paratracker.icns"),
-    bundle_identifier="ca.vclab.wormtracker",
+    bundle_identifier="ca.vclab.paratracker",
     info_plist={
         "NSHighResolutionCapable": True,
         "NSPrincipalClass": "NSApplication",
-        "CFBundleShortVersionString": "1.3.0",
-        "CFBundleVersion": "1.3.0",
+        "CFBundleShortVersionString": "1.4.0",
+        "CFBundleVersion": "1.4.0",
     },
 )
