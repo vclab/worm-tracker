@@ -39,7 +39,7 @@ DMG_NAME="${APP_NAME}-${VERSION}-arm64.dmg"
 DMG_PATH="${OUTDIR}/${DMG_NAME}"
 VOL_NAME="${APP_NAME} ${VERSION}"
 
-STAGE=$(mktemp -d -t wormtracker_dmg.XXXXXX)
+STAGE=$(mktemp -d -t paratracker_dmg.XXXXXX)
 trap 'rm -rf "$STAGE"' EXIT
 
 echo "==> Staging DMG contents"

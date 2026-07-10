@@ -108,18 +108,18 @@ clean-weights:
 # Release packaging (macOS DMG)
 # ---------------------------------------------------------------------------
 
-# Package the already-built dist/WormTracker.app into a DMG. Assumes
+# Package the already-built dist/ParaTracker.app into a DMG. Assumes
 # `make dist` has already run (build.sh also ad-hoc signs the app).
 # Uses hdiutil (built into macOS), no extra deps required.
 dmg:
-	@if [ ! -d dist/WormTracker.app ]; then \
-		echo "ERROR: dist/WormTracker.app not found. Run 'make dist' first."; \
+	@if [ ! -d dist/ParaTracker.app ]; then \
+		echo "ERROR: dist/ParaTracker.app not found. Run 'make dist' first."; \
 		exit 1; \
 	fi
-	./scripts/make_dmg.sh dist/WormTracker.app dist $(VERSION)
+	./scripts/make_dmg.sh dist/ParaTracker.app dist $(VERSION)
 
 # Full release: clean rebuild + sign (via build.sh) + DMG.
 release: dist
 	$(MAKE) dmg
 	@echo ""
-	@echo "Release artifact: dist/WormTracker-$(VERSION)-arm64.dmg"
+	@echo "Release artifact: dist/ParaTracker-$(VERSION)-arm64.dmg"

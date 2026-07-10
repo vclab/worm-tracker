@@ -42,7 +42,7 @@ async def _lifespan(application: FastAPI):
     # Guard against hypothetical double-invocation within the same process.
     if not _worker_started:
         # Acquire the outputs-folder lock first, outside the DB try/except.
-        # If another WormTracker is already running against this folder,
+        # If another ParaTracker is already running against this folder,
         # _acquire_outputs_lock() raises RuntimeError; letting it propagate
         # makes uvicorn report lifespan.startup.failed and exit, so the
         # duplicate instance dies cleanly instead of half-running the UI
@@ -75,7 +75,7 @@ async def _lifespan(application: FastAPI):
         _lock_fh = None
 
 
-app = FastAPI(title="Worm Tracker API (Local)", lifespan=_lifespan)
+app = FastAPI(title="ParaTracker API (Local)", lifespan=_lifespan)
 
 # Active processing jobs: job_id -> {"cancel_event": Event}
 active_jobs: dict[str, dict] = {}
@@ -159,18 +159,18 @@ FFMPEG_BIN = _resolve_ffmpeg()
 # ---------------------------------------------------------------------------
 # Outputs-directory lock — one process per outputs folder
 # ---------------------------------------------------------------------------
-# We hold an exclusive flock on wormtracker.lock for the lifetime of the
+# We hold an exclusive flock on paratracker.lock for the lifetime of the
 # process.  The kernel releases the lock automatically on process death
 # (even SIGKILL), so orphaned instances can never block a fresh start.
 
-_LOCK_PATH = OUTPUTS / "wormtracker.lock"
+_LOCK_PATH = OUTPUTS / "paratracker.lock"
 _lock_fh = None   # kept open to hold the lock
 
 
 def _acquire_outputs_lock() -> None:
     """Acquire an exclusive advisory lock on the outputs directory.
 
-    Raises RuntimeError if another WormTracker process already owns it.
+    Raises RuntimeError if another ParaTracker process already owns it.
     No-op on Windows (fcntl unavailable; SQLite WAL still prevents DB
     corruption, just without single-instance enforcement).
     """
@@ -184,7 +184,7 @@ def _acquire_outputs_lock() -> None:
     except OSError:
         fh.close()
         raise RuntimeError(
-            f"Another WormTracker process is already using {OUTPUTS}. "
+            f"Another ParaTracker process is already using {OUTPUTS}. "
             "Close the other instance first."
         )
     fh.write(str(os.getpid()))
@@ -281,7 +281,7 @@ def migrate_existing_outputs():
     with get_db(readonly=True) as conn:
         existing = {r[0] for r in conn.execute("SELECT job_id FROM jobs").fetchall()}
         # Directories that live inside OUTPUTS but are not job output folders.
-        _NON_JOB_DIRS = {"uploads", "wormtracker.lock"}
+        _NON_JOB_DIRS = {"uploads", "paratracker.lock", "paratracker.port"}
         for job_dir in OUTPUTS.iterdir():
             if not job_dir.is_dir():
                 continue
@@ -597,7 +597,7 @@ def process_job(job_id: str):
     # Error from tracker
     if error_holder[0]:
         tb = "".join(traceback.format_exception(type(error_holder[0]), error_holder[0], error_holder[0].__traceback__))
-        print(f"[WORMTRACKER] Job {job_id} FAILED during tracking:\n{tb}", flush=True)
+        print(f"[PARATRACKER] Job {job_id} FAILED during tracking:\n{tb}", flush=True)
         logger.error("Job %s failed during tracking:\n%s", job_id, tb)
         try:
             if saved_path.exists():
@@ -615,7 +615,7 @@ def process_job(job_id: str):
     try:
         _do_post_processing(job_id, job_dir, original_filename, saved_path)
     except Exception as e:
-        print(f"[WORMTRACKER] Job {job_id} FAILED during post-processing:\n{traceback.format_exc()}", flush=True)
+        print(f"[PARATRACKER] Job {job_id} FAILED during post-processing:\n{traceback.format_exc()}", flush=True)
         logger.error("Job %s failed during post-processing:\n%s", job_id, traceback.format_exc())
         try:
             if saved_path.exists():

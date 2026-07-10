@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Worm Tracker (product name: **ParaTracker**) is a full-stack application for tracking C. elegans and microfilaria in video data. It extracts skeleton-based keypoints to capture body deformation over time for behavioral analysis. Two selectable pipelines: a classical CV approach (thresholding + skeleton extraction) and a YOLOv8-seg deep-learning pipeline.
+**ParaTracker** (repo is still named `worm-tracker`; the app was renamed from WormTracker in v1.4.0) is a full-stack application for tracking C. elegans and microfilaria in video data. It extracts skeleton-based keypoints to capture body deformation over time for behavioral analysis. Two selectable pipelines: a classical CV approach (thresholding + skeleton extraction) and a YOLOv8-seg deep-learning pipeline.
 
 - **Backend**: Python + FastAPI (`/app`)
 - **Frontend**: React + Vite (`/frontend`)
@@ -69,9 +69,9 @@ In packaged mode (`sys.frozen=True`), a heartbeat watchdog shuts down the proces
 
 Running the app twice against the same outputs folder is handled at two layers:
 
-1. **Launcher pre-check (all OSes, packaged app)**: `launcher.py` reads `{outputs_dir}/wormtracker.port` (written by the primary at startup, cleaned up on exit via `atexit`). If the file exists and the port responds to a TCP probe (500 ms timeout), the launcher opens `http://127.0.0.1:<port>` in the browser (bringing the existing tab/window forward on most browsers) and exits without starting uvicorn. If the port file is stale (crash left it behind), the probe fails, the launcher removes the file and proceeds as a normal cold start. Helpers: `_find_running_primary()`, `_write_port_file()`, `_delete_port_file()` in `launcher.py`.
+1. **Launcher pre-check (all OSes, packaged app)**: `launcher.py` reads `{outputs_dir}/paratracker.port` (written by the primary at startup, cleaned up on exit via `atexit`). If the file exists and the port responds to a TCP probe (500 ms timeout), the launcher opens `http://127.0.0.1:<port>` in the browser (bringing the existing tab/window forward on most browsers) and exits without starting uvicorn. If the port file is stale (crash left it behind), the probe fails, the launcher removes the file and proceeds as a normal cold start. Helpers: `_find_running_primary()`, `_write_port_file()`, `_delete_port_file()` in `launcher.py`.
 
-2. **Lifespan flock (POSIX only, defence in depth)**: if two launchers race past the pre-check simultaneously, `_acquire_outputs_lock()` in the lifespan handler raises `RuntimeError` for the loser. Uvicorn reports `lifespan.startup.failed` and exits with a non-zero code. Log line: `Another WormTracker process is already using {outputs_dir}. Close the other instance first.`
+2. **Lifespan flock (POSIX only, defence in depth)**: if two launchers race past the pre-check simultaneously, `_acquire_outputs_lock()` in the lifespan handler raises `RuntimeError` for the loser. Uvicorn reports `lifespan.startup.failed` and exits with a non-zero code. Log line: `Another ParaTracker process is already using {outputs_dir}. Close the other instance first.`
 
 **Windows**: the launcher pre-check works (no OS-specific dependency), but if a race gets past it, `fcntl` is unavailable so both instances continue. Two full instances would then coexist against the same `jobs.db`; SQLite WAL prevents corruption but they race on job pickup. A Windows-native mutex (e.g. `CreateMutex` via `ctypes`) is on the roadmap for full parity.
 
@@ -193,7 +193,7 @@ Both CLIs write to `output_dir/{timestamp}_{output_name}/` and produce the same 
 
 ### macOS (implemented)
 
-`make release` produces `dist/WormTracker-<version>-arm64.dmg`. The pipeline:
+`make release` produces `dist/ParaTracker-<version>-arm64.dmg`. The pipeline:
 
 1. `make dist`: full clean rebuild. Runs `clean` → `venv` → `weights` → `build.sh`. `build.sh` builds the frontend, runs PyInstaller, then calls `scripts/sign_app.sh` to ad-hoc sign the `.app`.
 2. `make dmg`: packages the signed `.app`, an `/Applications` symlink, and `scripts/READ ME FIRST.txt` into a DMG using `hdiutil create -srcfolder`.
@@ -212,7 +212,7 @@ Version is read from `CFBundleShortVersionString` in `worm_tracker.spec`; bump t
 
 Planned steps:
 
-1. **PyInstaller build on Windows** using the same `worm_tracker.spec` (spec is cross-platform; Windows/macOS branches already handled in `launcher.py`). Produces `dist/WormTracker/WormTracker.exe` (folder mode).
+1. **PyInstaller build on Windows** using the same `worm_tracker.spec` (spec is cross-platform; Windows/macOS branches already handled in `launcher.py`). Produces `dist/ParaTracker/ParaTracker.exe` (folder mode).
 2. **Installer** built with **Inno Setup**: install to `Program Files`, Start Menu shortcut, uninstaller, "Programs & Features" entry.
 3. **Code signing** with `signtool`: NO cert planned. SmartScreen will show "Windows protected your PC" on first launch; users click "More info" → "Run anyway".
 4. **CI/CD** (`.github/workflows/release.yml`) so tagged releases build both macOS and Windows artifacts on their native runners.
@@ -251,7 +251,7 @@ No packaged artifact. To run the backend as a service:
 | Target | Effect |
 |---|---|
 | `make dist` | Full clean rebuild of the `.app`. Ad-hoc signed. Slow (3 to 6 min). |
-| `make dmg` | Package existing `dist/WormTracker.app` into `dist/WormTracker-<v>-arm64.dmg`. Seconds. |
+| `make dmg` | Package existing `dist/ParaTracker.app` into `dist/ParaTracker-<v>-arm64.dmg`. Seconds. |
 | `make release` | `dist` + `dmg`. Use for actual releases. |
 
 **Cleanup:**
@@ -277,21 +277,23 @@ Data lives in three distinct places: user data (persists across app upgrades), d
 
 | Platform | Path |
 |---|---|
-| macOS   | `~/Library/Application Support/WormTracker/config.json` |
-| Windows | `%APPDATA%/WormTracker/config.json` |
-| Linux   | `~/.config/WormTracker/config.json` |
+| macOS   | `~/Library/Application Support/ParaTracker/config.json` |
+| Windows | `%APPDATA%/ParaTracker/config.json` |
+| Linux   | `~/.config/ParaTracker/config.json` |
 
-Contents: `{"outputs_dir": "...", "model_path": "..."}`. The outputs directory is user-configurable via the Settings panel (⚙ in the UI) or by editing the file directly; changes require an app restart. If the stored `outputs_dir` is unwritable at startup (e.g. an external drive is unmounted), `load_config()` falls back to the default (`~/Documents/WormTracker/`) and logs a warning.
+Contents: `{"outputs_dir": "...", "model_path": "..."}`. The outputs directory is user-configurable via the Settings panel (⚙ in the UI) or by editing the file directly; changes require an app restart. If the stored `outputs_dir` is unwritable at startup (e.g. an external drive is unmounted), `load_config()` falls back to the default (`~/Documents/ParaTracker/`) and logs a warning.
 
-**Outputs directory** (default `~/Documents/WormTracker/` on all OSes, configurable). Everything in here is user data. The folder is self-contained and portable, so moving it to another drive or another machine takes the DB, all job outputs, and any in-flight uploads with it.
+**Legacy path migration (v1.3.0 -> v1.4.0).** The app was renamed from WormTracker to ParaTracker in v1.4.0. On first launch after upgrade, `app/config.py:get_config_dir()` renames `.../WormTracker/` to `.../ParaTracker/` in place if the new dir does not exist, and `_migrate_legacy_outputs_dir()` does the same for `~/Documents/WormTracker/` when the user was still on the default outputs path. Both migrations are one-shot and idempotent. A custom `outputs_dir` (external drive, alt location) is never touched; only the default-path case is auto-renamed.
+
+**Outputs directory** (default `~/Documents/ParaTracker/` on all OSes, configurable). Everything in here is user data. The folder is self-contained and portable, so moving it to another drive or another machine takes the DB, all job outputs, and any in-flight uploads with it.
 
 - `{outputs_dir}/jobs.db`: SQLite job database (WAL mode, one DB per outputs folder). Tracks job status, params, timestamps, output paths.
-- `{outputs_dir}/wormtracker.lock`: exclusive `flock` held for the lifetime of the running process; guarantees a single instance per outputs folder on POSIX. The kernel releases it on process death (even SIGKILL). Windows skips locking; SQLite WAL still protects the DB.
-- `{outputs_dir}/wormtracker.port`: TCP port the running primary is listening on. Written by `launcher.py` right after socket bind, removed via `atexit` on clean shutdown. Used by subsequent launches to detect an existing instance and open its URL instead of starting a duplicate. A stale file left over from a crash is auto-cleaned on the next launch when the TCP probe fails.
+- `{outputs_dir}/paratracker.lock`: exclusive `flock` held for the lifetime of the running process; guarantees a single instance per outputs folder on POSIX. The kernel releases it on process death (even SIGKILL). Windows skips locking; SQLite WAL still protects the DB.
+- `{outputs_dir}/paratracker.port`: TCP port the running primary is listening on. Written by `launcher.py` right after socket bind, removed via `atexit` on clean shutdown. Used by subsequent launches to detect an existing instance and open its URL instead of starting a duplicate. A stale file left over from a crash is auto-cleaned on the next launch when the TCP probe fails.
 - `{outputs_dir}/uploads/`: transient upload staging. Files named `{job_id}__{original_filename}`. Persist across restarts to survive a crash mid-upload; usually cleaned up as jobs finish or are cancelled.
 - `{outputs_dir}/{job_id}/{timestamp}_{output_name}/`: one directory per job (the `output_subfolder` column in `jobs.db`). Contains all output files documented under "Output Formats" below.
 
-On startup, `migrate_existing_outputs()` scans the outputs folder for job directories not in the DB (anything except `uploads/` and `wormtracker.lock` with a `*_tracked.mp4` inside) and imports them, so a fresh install can pick up jobs dropped in manually or left over from a previous DB.
+On startup, `migrate_existing_outputs()` scans the outputs folder for job directories not in the DB (anything except `uploads/`, `paratracker.lock`, and `paratracker.port` with a `*_tracked.mp4` inside) and imports them, so a fresh install can pick up jobs dropped in manually or left over from a previous DB.
 
 **Full uninstall** = delete both the config directory AND the outputs directory. Removing only the .app or the installer leaves both intact.
 
@@ -307,16 +309,16 @@ Reproducible from source; all git-ignored.
 | all | `<project>/frontend/node_modules/` | npm deps |
 | all | `<project>/frontend/dist/` | Vite production build |
 | all | `<project>/build/` | PyInstaller work directory |
-| all | `<project>/dist/` | PyInstaller output (`WormTracker.app`, folder-mode `WormTracker/`, `.dmg`) |
+| all | `<project>/dist/` | PyInstaller output (`ParaTracker.app`, folder-mode `ParaTracker/`, `.dmg`) |
 | all | `<project>/__pycache__/` (throughout) | Python bytecode |
 
 ### Packaged app bundle contents
 
 Data files bundled by PyInstaller are extracted to `sys._MEIPASS` at runtime:
 
-- **macOS folder-mode** (`dist/WormTracker/_internal/`): visible on disk.
-- **macOS `.app` bundle** (`WormTracker.app/Contents/Frameworks/`): same layout, accessed via `sys._MEIPASS`.
-- **Windows folder-mode** (planned: `dist/WormTracker/_internal/`): same as macOS folder-mode.
+- **macOS folder-mode** (`dist/ParaTracker/_internal/`): visible on disk.
+- **macOS `.app` bundle** (`ParaTracker.app/Contents/Frameworks/`): same layout, accessed via `sys._MEIPASS`.
+- **Windows folder-mode** (planned: `dist/ParaTracker/_internal/`): same as macOS folder-mode.
 
 Bundled subdirectories (`worm_tracker.spec` `datas`):
 

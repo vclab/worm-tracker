@@ -143,7 +143,7 @@ You won't normally need these, but they're available.
 
 ### Building a self-contained app (macOS)
 
-To produce a `WormTracker.app` that runs on machines with no Python or Node installed (FFmpeg is bundled):
+To produce a `ParaTracker.app` that runs on machines with no Python or Node installed (FFmpeg is bundled):
 
 ```bash
 make dist
@@ -152,8 +152,8 @@ make dist
 This runs a full clean rebuild and ad-hoc signs the `.app`. Launch it with:
 
 ```bash
-open dist/WormTracker.app       # normal launch
-dist/WormTracker/WormTracker    # folder-mode binary; shows server logs in the terminal
+open dist/ParaTracker.app       # normal launch
+dist/ParaTracker/ParaTracker    # folder-mode binary; shows server logs in the terminal
 ```
 
 To also package the `.app` into a DMG for distribution (this is what we upload to GitHub Releases):
@@ -162,7 +162,7 @@ To also package the `.app` into a DMG for distribution (this is what we upload t
 make release
 ```
 
-Produces `dist/WormTracker-<version>-arm64.dmg`. `make release` is `make dist` followed by `make dmg`; use `make dmg` on its own to repackage an existing `.app` without rebuilding.
+Produces `dist/ParaTracker-<version>-arm64.dmg`. `make release` is `make dist` followed by `make dmg`; use `make dmg` on its own to repackage an existing `.app` without rebuilding.
 
 The DMG is Apple Silicon only (arm64). It is ad-hoc signed but NOT notarized (we have not paid Apple's yearly Developer Program fee since this is free research software). The DMG bundles a "READ ME FIRST.txt" that walks first-launch users through the required right-click + Open step to bypass Gatekeeper.
 
@@ -177,26 +177,28 @@ A full uninstall requires deleting three things: the app itself, its config dire
 **macOS:**
 
 ```bash
-rm -rf /Applications/WormTracker.app                # the app
-rm -rf ~/Library/Application\ Support/WormTracker   # config (settings, YOLO model path)
-rm -rf ~/Documents/WormTracker                      # outputs: jobs.db, tracked videos, keypoints, CSVs, uploads
+rm -rf /Applications/ParaTracker.app                # the app
+rm -rf ~/Library/Application\ Support/ParaTracker   # config (settings, YOLO model path)
+rm -rf ~/Documents/ParaTracker                      # outputs: jobs.db, tracked videos, keypoints, CSVs, uploads
 ```
 
 **Windows** (no packaged installer yet; run from source):
 
 ```powershell
-Remove-Item -Recurse -Force "$env:APPDATA\WormTracker"                 # config
-Remove-Item -Recurse -Force "$env:USERPROFILE\Documents\WormTracker"   # outputs
+Remove-Item -Recurse -Force "$env:APPDATA\ParaTracker"                 # config
+Remove-Item -Recurse -Force "$env:USERPROFILE\Documents\ParaTracker"   # outputs
 ```
 
 **Linux:**
 
 ```bash
-rm -rf ~/.config/WormTracker                        # config
-rm -rf ~/Documents/WormTracker                      # outputs
+rm -rf ~/.config/ParaTracker                        # config
+rm -rf ~/Documents/ParaTracker                      # outputs
 ```
 
-**If you moved your outputs directory** via Settings (⚙ in the UI) to a custom location (e.g. an external drive), delete that location instead of `~/Documents/WormTracker`. The path is stored under `outputs_dir` in `config.json` inside the config directory shown above; open that file before deleting the config directory if you're not sure.
+**If you moved your outputs directory** via Settings (⚙ in the UI) to a custom location (e.g. an external drive), delete that location instead of `~/Documents/ParaTracker`. The path is stored under `outputs_dir` in `config.json` inside the config directory shown above; open that file before deleting the config directory if you're not sure.
+
+**Upgrading from v1.3.0 or earlier?** The app was previously named WormTracker. On first launch of v1.4.0 the old `WormTracker` config and outputs directories are automatically renamed to `ParaTracker` in place, so your existing jobs and settings carry over untouched. Nothing to do manually.
 
 **If you built from source**, you may also want to remove:
 
@@ -333,7 +335,7 @@ with np.load("*_keypoints.npz") as npz:
 | CORS / network errors | Make sure backend is running at `http://127.0.0.1:8000` |
 | Port already in use | `npm run dev -- --port 5174` |
 | "app is damaged" or "cannot verify developer" on macOS | Right-click the app, choose Open, then click Open in the dialog. Only needed on first launch. See the "READ ME FIRST.txt" bundled in the DMG. |
-| Packaged app launches but no browser tab appears | Check that a default browser is set. The port the app is using is written to `~/Documents/WormTracker/wormtracker.port`; open `http://127.0.0.1:<that-port>` manually. |
+| Packaged app launches but no browser tab appears | Check that a default browser is set. The port the app is using is written to `~/Documents/ParaTracker/paratracker.port`; open `http://127.0.0.1:<that-port>` manually. |
 | Double-clicked the app and nothing seems to happen | It is already running. It brought the existing browser tab forward; look at your open tabs. |
 | Server keeps running after closing the browser | Give it about 20 seconds (heartbeat watchdog). Force-quit from Activity Monitor if needed. |
 

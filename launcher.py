@@ -1,5 +1,5 @@
 """
-WormTracker launcher.
+ParaTracker launcher.
 
 Finds a free port, starts the FastAPI server via uvicorn, then opens
 the browser. This is the entry point for the packaged .app bundle.
@@ -17,7 +17,7 @@ from pathlib import Path
 
 # Env-var key used to ensure the browser is opened exactly once even if
 # a spawned subprocess re-enters this module before freeze_support() fires.
-_LAUNCHED_KEY = "_WORMTRACKER_LAUNCHED"
+_LAUNCHED_KEY = "_PARATRACKER_LAUNCHED"
 
 # Timeout for the "is the primary reachable?" probe. Kept short so a
 # stale port file does not delay a legitimate cold start.
@@ -30,18 +30,18 @@ def _open_browser(port: int, delay: float = 2.0) -> None:
 
 
 def _port_file_path() -> Path | None:
-    """Return the path to `{outputs_dir}/wormtracker.port`, or None if the
+    """Return the path to `{outputs_dir}/paratracker.port`, or None if the
     config cannot be loaded (which we treat as "no primary detectable").
     """
     try:
         from app.config import load_config
-        return Path(load_config()["outputs_dir"]) / "wormtracker.port"
+        return Path(load_config()["outputs_dir"]) / "paratracker.port"
     except Exception:
         return None
 
 
 def _find_running_primary() -> str | None:
-    """If a primary WormTracker is already running against the same outputs
+    """If a primary ParaTracker is already running against the same outputs
     folder, return its URL. Otherwise return None and clean up any stale
     port file left behind by a previous crashed instance.
     """
@@ -109,7 +109,7 @@ def main() -> None:
         if bundle_dir not in sys.path:
             sys.path.insert(0, bundle_dir)
 
-    # Second-instance short-circuit: if a primary WormTracker is already
+    # Second-instance short-circuit: if a primary ParaTracker is already
     # running against the same outputs folder, open its URL in the browser
     # (which brings the existing window/tab forward on most browsers) and
     # exit before starting a second uvicorn. Without this the second
