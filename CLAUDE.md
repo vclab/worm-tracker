@@ -16,7 +16,7 @@ The code is designed for four deployment settings:
 | Target | Status | Purpose |
 |---|---|---|
 | macOS desktop (arm64) | Packaging **implemented** | Primary user platform. Distributed as a signed DMG produced by `make release`. |
-| Windows desktop | Packaging **not yet implemented** | Primary user platform. Dev workflow works via `dev.ps1`; installer/exe pipeline is on the roadmap (see `## Distribution` below). |
+| Windows desktop | Packaging **implemented** (onedir exe) | Primary user platform. Dev workflow via `dev.ps1`; `build_windows.ps1` produces `dist\ParaTracker\ParaTracker.exe`. Installer (Inno Setup) + code signing still on the roadmap (see `## Distribution` below). |
 | Linux desktop | Dev only | Not a distribution target. The Makefile workflow runs on Linux; there is no packaged `.deb`/`.rpm`/AppImage. |
 | Cloud / server | Ad-hoc | No packaged deployment. Run `uvicorn app.main:app` directly, skip `launcher.py`. See `## Cloud deployment` below. |
 
@@ -33,13 +33,15 @@ app/                    Backend (FastAPI, tracking pipelines)
   config.py             Platform-specific config file handling
 frontend/               React + Vite frontend
 launcher.py             PyInstaller entry point for the packaged app
-worm_tracker.spec       PyInstaller spec (bundle layout, hidden imports)
+worm_tracker.spec       PyInstaller spec, macOS (.app bundle, hidden imports)
+worm_tracker_windows.spec  PyInstaller spec, Windows (onedir exe; keep in sync with the macOS spec)
 scripts/                Packaging helpers (macOS-specific for now)
   sign_app.sh           Ad-hoc codesign the .app
   make_dmg.sh           Build the DMG via hdiutil
   READ ME FIRST.txt     First-launch instructions bundled in the DMG
 Makefile                macOS/Linux dev + macOS distribution
 dev.ps1                 Windows dev workflow
+build_windows.ps1       Windows distribution: build the onedir ParaTracker.exe
 build.sh                bash builder invoked by `make dist`
 requirements.txt        Python deps
 weights/                YOLO model (downloaded by `make weights`, git-ignored)
@@ -208,16 +210,31 @@ Version is read from `CFBundleShortVersionString` in `worm_tracker.spec`; bump t
 
 **YOLO weights are bundled** (since v1.4.1). `worm_tracker.spec` includes `(str(PROJECT / "weights"), "weights")` in `datas`, and `app/main.py` branches `DEFAULT_WEIGHTS` on `sys.frozen`: `sys._MEIPASS/weights/` when packaged, `APP_DIR.parent/weights/` when running from source. Both classical and YOLO pipelines work out of the box in the DMG. A user can still override the default by setting `model_path` in Settings (⚙) to point at a different `.pt` file.
 
-### Windows (not yet implemented, roadmap)
+### Windows (implemented — onedir exe)
 
-Planned steps:
+`build_windows.ps1` produces `dist\ParaTracker\ParaTracker.exe` (PyInstaller **onedir** — a folder containing the exe plus `_internal\`). Distribute by zipping the `dist\ParaTracker\` folder; the recipient extracts it and double-clicks `ParaTracker.exe` (no Python, Node, or FFmpeg needed on the target machine — FFmpeg is bundled).
 
-1. **PyInstaller build on Windows** using the same `worm_tracker.spec` (spec is cross-platform; Windows/macOS branches already handled in `launcher.py`). Produces `dist/ParaTracker/ParaTracker.exe` (folder mode).
-2. **Installer** built with **Inno Setup**: install to `Program Files`, Start Menu shortcut, uninstaller, "Programs & Features" entry.
-3. **Code signing** with `signtool`: NO cert planned. SmartScreen will show "Windows protected your PC" on first launch; users click "More info" → "Run anyway".
-4. **CI/CD** (`.github/workflows/release.yml`) so tagged releases build both macOS and Windows artifacts on their native runners.
+The build pipeline (`build_windows.ps1`):
 
-The Windows build will inherit the same YOLO-weights bundling gap as macOS until the spec is updated.
+1. Activates the project venv (`.\venv\`, created by `.\dev.ps1 venv`) and ensures `pyinstaller` + `imageio-ffmpeg` are installed.
+2. Requires the YOLO weights to be present (`.\dev.ps1 weights` first) — the exe fails to build without them.
+3. Builds the frontend with `VITE_API_URL=""` (same-origin). It writes `frontend/.env.production.local` with an empty `VITE_API_URL` because Windows drops env vars assigned `""` (`SetEnvironmentVariable` treats `""` as unset), so `$env:VITE_API_URL = ""` never reaches Vite.
+4. Runs `pyinstaller worm_tracker_windows.spec --clean --noconfirm`.
+
+**Uses a dedicated spec, `worm_tracker_windows.spec`** — NOT the cross-platform `worm_tracker.spec`, which ends with a macOS-only `BUNDLE` step and references the `.icns` icon. The Windows spec is a `COLLECT`-only onedir build. Its `datas`, `hiddenimports`, and `excludes` are kept in sync with `worm_tracker.spec`; if you add a hidden import or bundled data file to one, mirror it in the other. It explicitly lists every `app.*` module (including the lazily-imported `app.dl_worm_tracker`) and `pandas`, so both pipelines and the aggregate/compare pages work in the packaged exe.
+
+**No console window (`console=False`).** There is no terminal to Ctrl-C and no window to close, so the browser-heartbeat watchdog (`app/main.py`, active when `sys.frozen`) is the only clean shutdown path: when the browser tab is closed and no job is processing, no `POST /api/heartbeat` arrives for 20 s and the process exits via `os.kill(os.getpid(), signal.SIGTERM)` (maps to `TerminateProcess` on Windows — a hard kill, which reliably terminates). The hard kill skips `atexit`, so `paratracker.port` is left behind, but the launcher's TCP probe treats a stale port file as dead and removes it on the next launch, so it is self-healing.
+
+**`launcher.py:_silence_stdio()`** is required for the windowless build: with `console=False`, `sys.stdout`/`sys.stderr` are `None`, and any write to them — `tqdm`, the `print()` calls in `app/main.py`, uvicorn's log formatter calling `.isatty()` — would raise `AttributeError`. `main()` calls it first thing when `sys.frozen`, redirecting both to `os.devnull`.
+
+**Icon.** The spec uses `paratracker.ico` if it exists next to the spec, otherwise the exe ships with PyInstaller's default icon. No `.ico` is committed yet (only `paratracker.icns` for macOS); add one to brand the exe/taskbar.
+
+Not yet done (roadmap):
+
+- **Installer** (Inno Setup): install to `Program Files`, Start Menu shortcut, uninstaller, "Programs & Features" entry. For now distribution is a zipped onedir folder.
+- **Code signing** (`signtool`): no cert planned. SmartScreen shows "Windows protected your PC" on first launch; users click "More info" → "Run anyway".
+- **Single-instance mutex**: `fcntl` is unavailable on Windows, so the outputs-folder flock is skipped (see the single-instance notes above). A `CreateMutex`-via-`ctypes` guard is still outstanding.
+- **CI/CD** (`.github/workflows/release.yml`) to build macOS + Windows artifacts on native runners.
 
 ### Linux
 
@@ -265,7 +282,7 @@ No packaged artifact. To run the backend as a service:
 | `make clean-build` | Remove `build/` and `dist/`. |
 | `make clean-weights` | Remove `weights/`. Not part of `clean`. |
 
-Windows equivalent: `dev.ps1` supports `run`, `build`, `venv`, `weights`, and the same `clean-*` targets (no `dist`/`dmg`/`release` yet).
+Windows equivalent: `dev.ps1` supports `run`, `build`, `venv`, `weights`, and the same `clean-*` targets. Windows distribution is a separate script — run `.\build_windows.ps1` to produce the onedir `dist\ParaTracker\ParaTracker.exe` (see `## Distribution → Windows`). `dev.ps1` itself has no `dist`/`release` target.
 
 ## File Locations
 
@@ -318,7 +335,7 @@ Data files bundled by PyInstaller are extracted to `sys._MEIPASS` at runtime:
 
 - **macOS folder-mode** (`dist/ParaTracker/_internal/`): visible on disk.
 - **macOS `.app` bundle** (`ParaTracker.app/Contents/Frameworks/`): same layout, accessed via `sys._MEIPASS`.
-- **Windows folder-mode** (planned: `dist/ParaTracker/_internal/`): same as macOS folder-mode.
+- **Windows folder-mode** (`dist\ParaTracker\_internal\`): same as macOS folder-mode; built via `worm_tracker_windows.spec`.
 
 Bundled subdirectories (`worm_tracker.spec` `datas`):
 
