@@ -707,7 +707,7 @@ if getattr(sys, "frozen", False):
 
 @app.get("/api/health")
 def root():
-    return {"ok": True, "message": "Worm Tracker API running"}
+    return {"ok": True, "message": "ParaTracker API running"}
 
 
 @app.get("/api/settings")
