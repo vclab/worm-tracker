@@ -1,127 +1,204 @@
 # ParaTracker
 
-A full-stack application for *Microfilaria motion analysis*. The system uses skeleton-based keypoint extraction to capture body posture and deformation over time, enabling quantitative behavioral analysis. Two selectable tracking pipelines are available: a classical computer vision approach that requires no training data, and a deep learning pipeline powered by a custom-trained YOLOv8-seg instance segmentation model.
+**Quantitative motion analysis for *C. elegans* and microfilaria — from raw video to publication-ready data, on your desktop.**
+
+ParaTracker turns microscopy videos of worms into structured behavioral data. It detects each animal, extracts a skeleton-based set of keypoints along its body, and tracks how that posture deforms over time — giving you per-worm, per-region motion metrics you can compare across conditions. It runs as a local desktop app: drop in a video, watch it process, and download annotated video plus analysis-ready CSVs.
 
 <p align="center">
-  <img src="media/ParaTrackerGIF.gif" alt="ParaTracker: upload, process, and analyze worm videos" width="800" />
+  <img src="media/ParaTrackerGIF.gif" alt="ParaTracker: upload, process, and analyze worm videos" width="820" />
 </p>
 
-## Demo Videos
+---
 
-<!-- TODO: Add demo video links once recorded -->
-<!-- 
-| Video | Description |
-|---|---|
-| [Overview & Introduction](#) | What the project is and why it matters |
-| [Upload & Processing](#) | Multi-file upload, job queue, cancellation |
-| [Results & Comparison](#) | Video comparison slider, color-coded keypoints, head/tail correction |
-| [Job Management](#) | Job history, re-run with new parameters, delete jobs |
-| [Motion Analysis](#) | Heatmap, timeline charts, rolling average, legend hover |
-| [Export & Data](#) | CSV/ZIP download, output file formats |
--->
+## Overview
 
-*Coming soon: short walkthrough videos for each feature area.*
+### The problem
 
-## Technology Stack
+Scoring worm motility by hand is slow, subjective, and hard to reproduce. Existing tools often demand command-line fluency, a specific OS, or a cloud upload of unpublished data. ParaTracker is built for wet-lab researchers who want rigorous, repeatable motion quantification **locally**, with no coding and no data leaving their machine.
+
+### What it does
+
+- **Two tracking pipelines, one click apart.** A **classical** computer-vision pipeline (adaptive threshold → skeletonization → Hungarian tracking) that needs no training data, and a **deep-learning** pipeline built on a custom-trained **YOLOv8-seg** model for translucent, overlapping, or low-contrast specimens.
+- **Skeleton keypoints, not just centroids.** Each worm is reduced to an ordered set of keypoints from head to tail, so you capture body *deformation* — not merely whether the animal moved.
+- **Region-resolved motion.** Separate metrics for **head**, **mid-body**, and **tail**, plus an overall score, per worm and over time.
+- **Head/tail correction built in.** Auto-orientation is good, but you can flip any worm's head/tail assignment in the UI and everything downstream recomputes.
+- **Cross-condition comparison.** Group videos into conditions and export grouped comparison charts and statistics.
+- **Runs entirely on your machine.** No account, no server, no upload. Ships as a signed macOS `.app` / DMG and a standalone Windows `.exe`.
+
+### See it in action
+
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <img src="media/App-with-Split.png" alt="Before/after comparison slider" width="100%"/><br/>
+      <sub><b>Before/after slider</b> — drag to reveal original vs. tracked video.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="media/Tracked-Worm-Closeup.png" alt="Skeleton keypoints on a tracked worm" width="100%"/><br/>
+      <sub><b>Skeleton keypoints</b> — color-coded head→tail, with per-worm IDs.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="media/MotionAnalysis.png" alt="Motion analysis charts" width="100%"/><br/>
+      <sub><b>Motion analysis</b> — per-worm heatmap and timeline for head, mid-body, and tail.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="media/Parameter-Panel.png" alt="Tracking parameter panel" width="100%"/><br/>
+      <sub><b>Tunable parameters</b> — keypoints, area threshold, max age, persistence.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <img src="media/summary_comparison.png" alt="Cross-condition summary comparison" width="100%"/><br/>
+      <sub><b>Condition comparison</b> — aggregate motion across experimental groups.</sub>
+    </td>
+    <td width="50%" align="center">
+      <img src="media/per_video_consistency.png" alt="Per-video consistency chart" width="100%"/><br/>
+      <sub><b>Per-video consistency</b> — spot outliers and batch effects at a glance.</sub>
+    </td>
+  </tr>
+</table>
+
+### Who it's for
+
+- **Neurobiology / pharmacology labs** screening drug or genotype effects on worm locomotion.
+- **Parasitology labs** quantifying microfilaria motility for anthelmintic assays.
+- **Anyone** who needs reproducible, per-region motion metrics without writing tracking code or shipping data to the cloud.
+
+### Technology stack
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3, FastAPI |
+| Backend | Python 3.11, FastAPI, SQLite |
 | Frontend | React, Vite, Recharts |
-| CV / Scientific | OpenCV, scikit-image, SciPy, NumPy |
-| ML / Deep Learning | PyTorch (CUDA), Ultralytics YOLOv8-seg, pycocotools |
-| Database | SQLite |
-| Video | FFmpeg (H.264 transcoding) |
-| Communication | Server-Sent Events (SSE) |
+| CV / scientific | OpenCV, scikit-image, SciPy, NumPy |
+| Deep learning | PyTorch, Ultralytics YOLOv8-seg |
+| Video | FFmpeg (bundled via `imageio-ffmpeg`, H.264 transcoding) |
 
-## Getting Started
+### Demo videos
 
-ParaTracker runs as a backend (FastAPI, port 8000) plus a frontend dev server (Vite, port 5173). Helper scripts handle installing dependencies, downloading the tracking model, freeing the ports, and starting both servers together: a `Makefile` for macOS/Linux and an equivalent `dev.ps1` for Windows.
+*Coming soon: short walkthrough videos covering upload & processing, results & comparison, job management, motion analysis, and export.*
 
-Follow the steps below **in order**. You only need to do the setup steps (1 through 4) once.
+---
 
-> For Windows commands, please use ***Powershell***.
+## Installation & Development
 
-### 1. Install prerequisites
+ParaTracker runs as a **backend** (FastAPI, port 8000) plus a **frontend dev server** (Vite, port 5173). Helper scripts install dependencies, download the tracking model, free the ports, and start both together — a `Makefile` on macOS/Linux and an equivalent `dev.ps1` on Windows.
 
-You need these installed on your computer before anything else:
+**What you'll need on any OS:**
 
-1. **Python 3.11**: <https://www.python.org/downloads/>
-2. **Node.js 18 or newer** (this also installs `npm`): <https://nodejs.org>
-3. **FFmpeg** (for video processing):
-   - macOS: `brew install ffmpeg`
-   - Linux: `apt install ffmpeg`
-   - Windows: download from <https://www.gyan.dev/ffmpeg/builds/> or run `choco install ffmpeg`
+- **Python 3.11** — use this exact version. `requirements.txt` pins `numpy<2` (NumPy 2.x breaks the scikit-image/OpenCV stack), and NumPy 1.x has **no wheels for Python 3.13+**, so installation fails on newer Pythons.
+- **Node.js 18+** (includes `npm`).
+- **FFmpeg is *not* a prerequisite** — the `imageio-ffmpeg` package (installed into the virtual environment automatically) bundles a static FFmpeg binary the app uses for H.264 transcoding. A system FFmpeg on your `PATH` is used only as a fallback.
 
-> Note: NumPy must stay below version 2 (NumPy 2.x breaks the image-processing libraries). It's already pinned in `requirements.txt`, so as long as you don't manually upgrade it, you're fine.
+You only do the setup once. Pick your platform:
 
-### 2. Download the project
+### Windows
+
+**1. Install prerequisites (PowerShell):**
+
+```powershell
+winget install Python.Python.3.11
+winget install OpenJS.NodeJS
+```
+
+**2. Allow the helper script to run (one time, no admin needed).** PowerShell blocks local scripts by default, so `.\dev.ps1` fails the first time with `running scripts is disabled on this system`. Fix it once:
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+
+Answer `Y` when prompted. (Prefer not to change any policy? Prefix each command instead: `powershell -ExecutionPolicy Bypass -File .\dev.ps1 <target>`.)
+
+**3. Get the code:**
+
+```powershell
+git clone https://github.com/vclab/worm-tracker.git
+cd worm-tracker
+```
+
+**4. Download the tracking model** (required once; SHA256-verified):
+
+```powershell
+.\dev.ps1 weights
+```
+
+**5. Start the app:**
+
+```powershell
+.\dev.ps1 run
+```
+
+This creates the virtual environment (`.\venv`), installs dependencies, and starts both servers. Open **<http://127.0.0.1:5173>**. Press **Ctrl+C** to stop both.
+
+### macOS
+
+**1. Install prerequisites** (via [Homebrew](https://brew.sh); `make` comes from Apple's Command Line Tools):
+
+```bash
+xcode-select --install        # provides `make`, if you don't already have it
+brew install python@3.11 node
+```
+
+**2. Get the code:**
 
 ```bash
 git clone https://github.com/vclab/worm-tracker.git
 cd worm-tracker
 ```
 
-Alternatively, you can download the project as a zip file and then do the following:
+**3. Download the tracking model** (required once; SHA256-verified):
 
-1. Extract the zip file anywhere on your device.
-2. Go into the extracted folder, right-click anywhere and then select 'Open in Terminal'.
-
-### 3. Download the tracking model (required, do this before running)
-
-The YOLO tracking model is **not** included in the download and must be fetched separately. The YOLO tracker will not work without it. Run the matching command for your system:
-
-**macOS / Linux:**
 ```bash
 make weights
 ```
 
-**Windows:**
-```powershell
-.\dev.ps1 weights
-```
+**4. Start the app:**
 
-This downloads the model from Google Drive and verifies it automatically. It only needs to be done once; the model is saved into the `weights/` folder and reused after that.
-
-> If you skip this step, using the YOLO tracker on Windows will fail because it can't find the model. (On macOS/Linux, `make run` will download it for you if you forgot, but it's cleaner to do it here first.)
-
-### 4. Start the app
-
-**macOS / Linux:**
 ```bash
 make run
 ```
 
-**Windows:**
-```powershell
-.\dev.ps1 run
+This creates the virtual environment (`~/venv/worm-tracker`), installs dependencies, and starts both servers. Open **<http://127.0.0.1:5173>**. Press **Ctrl+C** to stop both. (If you skip step 3, `make run` will download the model for you.)
+
+### Linux
+
+**1. Install prerequisites** (Debian/Ubuntu shown; `python3.11` may need the deadsnakes PPA):
+
+```bash
+sudo apt install python3.11 python3.11-venv nodejs npm make
 ```
 
-This installs any remaining dependencies, starts the backend (port 8000) and the frontend (port 5173) together, and stops both cleanly when you press **Ctrl+C**.
+**2. Get the code:**
 
-Then open **<http://127.0.0.1:5173>** in your web browser. That's the app.
+```bash
+git clone https://github.com/vclab/worm-tracker.git
+cd worm-tracker
+```
 
----
+**3. Download the tracking model** and **4. start the app:**
 
-### Other commands
+```bash
+make weights
+make run
+```
 
-You won't normally need these, but they're available.
+Open **<http://127.0.0.1:5173>**. Press **Ctrl+C** to stop both. Linux is a development target only — there is no packaged `.deb`/`.rpm`/AppImage.
+
+### Command reference
 
 **macOS / Linux (`make <target>`):**
 
 | Target | What it does |
 | --- | --- |
-| `make run` | Start backend + frontend |
+| `make run` | Start backend + frontend (ensures venv, deps, weights) |
 | `make weights` | Download and verify the YOLO model |
 | `make venv` | Create the Python environment (`~/venv/worm-tracker`) and install requirements |
 | `make build` | Install frontend dependencies |
-| `make dist` | Build the standalone macOS app bundle (see below) |
+| `make dist` / `make dmg` / `make release` | Build the macOS app / DMG (see [Building for Distribution](#building-for-distribution)) |
 | `make clean` | Remove caches, frontend build, and `build/`+`dist/` |
-| `make clean-python` | Remove `__pycache__` and compiled Python files |
-| `make clean-python-env` | Remove the Python virtual environment |
-| `make clean-frontend` | Remove `frontend/dist` and `frontend/node_modules` |
-| `make clean-build` | Remove `build/` and `dist/` |
-| `make clean-weights` | Remove the downloaded model |
+| `make clean-python` / `clean-python-env` / `clean-frontend` / `clean-weights` | Targeted cleanup |
 
 **Windows (`.\dev.ps1 <target>`):**
 
@@ -131,114 +208,20 @@ You won't normally need these, but they're available.
 | `.\dev.ps1 weights` | Download and verify the YOLO model |
 | `.\dev.ps1 venv` | Create the Python environment (`.\venv`) and install requirements |
 | `.\dev.ps1 build` | Install frontend dependencies |
-| `.\dev.ps1 clean` | Remove caches and frontend build |
-| `.\dev.ps1 clean-python` | Remove `__pycache__` and compiled Python files |
-| `.\dev.ps1 clean-python-env` | Remove the Python virtual environment |
-| `.\dev.ps1 clean-frontend` | Remove `frontend/dist` and `frontend/node_modules` |
-| `.\dev.ps1 clean-weights` | Remove the downloaded model |
+| `.\dev.ps1 clean` / `clean-python` / `clean-python-env` / `clean-frontend` / `clean-weights` | Cleanup |
 
-> The Python virtual environment is created in a different place on each system: `~/venv/worm-tracker` on macOS/Linux, and `.\venv` inside the project folder on Windows.
+> The venv location differs per OS: `~/venv/worm-tracker` on macOS/Linux, `.\venv` inside the project folder on Windows.
 
----
-
-### Building a self-contained app (macOS)
-
-To produce a `ParaTracker.app` that runs on machines with no Python or Node installed (FFmpeg is bundled):
-
-```bash
-make dist
-```
-
-This runs a full clean rebuild and ad-hoc signs the `.app`. Launch it with:
-
-```bash
-open dist/ParaTracker.app       # normal launch
-dist/ParaTracker/ParaTracker    # folder-mode binary; shows server logs in the terminal
-```
-
-To also package the `.app` into a DMG for distribution (this is what we upload to GitHub Releases):
-
-```bash
-make release
-```
-
-Produces `dist/ParaTracker-<version>-arm64.dmg`. `make release` is `make dist` followed by `make dmg`; use `make dmg` on its own to repackage an existing `.app` without rebuilding.
-
-The DMG is Apple Silicon only (arm64). It is ad-hoc signed but NOT notarized (we have not paid Apple's yearly Developer Program fee since this is free research software). The DMG bundles a "READ ME FIRST.txt" that walks first-launch users through the required right-click + Open step to bypass Gatekeeper.
-
-**YOLO pipeline in the packaged app**: the model file is bundled inside the app (since v1.4.1), so both the classical and YOLO pipelines work out of the box — nothing extra to download. To use a different model, point `model_path` at another `.pt` file in Settings (⚙).
-
-### Standalone Windows App (no setup on the target machine)
-
-To build a self-contained `ParaTracker.exe` (it bundles FFmpeg, so the machine you run it on needs no Python or Node), first make sure you've done steps 1–3 above (venv created, weights downloaded), then run:
-
-```powershell
-.\build_windows.ps1
-```
-
-This builds the frontend and packages the app with PyInstaller into `dist\ParaTracker\`. Launch it by double-clicking:
-
-```
-dist\ParaTracker\ParaTracker.exe
-```
-
-It starts the server in the background and opens your browser automatically -- no console window needed.
-
-#### Running the app from a downloaded zip
-
-If someone sent you a `ParaTracker` zip instead of you building it yourself:
-
-1. Download the zip file.
-2. Extract it anywhere on your computer.
-3. Open the extracted `ParaTracker` folder and double-click `ParaTracker.exe`.
-
-The app starts a local server in the background and opens your browser automatically — no installation or setup needed. Since the app isn't code-signed, Windows SmartScreen will likely show "Windows protected your PC" on first launch — click **More info -> Run anyway** to continue.
-
-### Uninstalling
-
-A full uninstall requires deleting three things: the app itself, its config directory, and its outputs directory. Trashing only the app (or running the source-tree `make clean` targets) leaves your job history, results, and settings on disk.
-
-**macOS:**
-
-```bash
-rm -rf /Applications/ParaTracker.app                # the app
-rm -rf ~/Library/Application\ Support/ParaTracker   # config (settings, YOLO model path)
-rm -rf ~/Documents/ParaTracker                      # outputs: jobs.db, tracked videos, keypoints, CSVs, uploads
-```
-
-**Windows** (the app is a standalone folder, not an installer — there is nothing registered in "Programs & Features"):
-
-```powershell
-Remove-Item -Recurse -Force "path\to\ParaTracker"                      # the extracted app folder, wherever you put it
-Remove-Item -Recurse -Force "$env:APPDATA\ParaTracker"                 # config
-Remove-Item -Recurse -Force "$env:USERPROFILE\Documents\ParaTracker"   # outputs
-```
-
-**Linux:**
-
-```bash
-rm -rf ~/.config/ParaTracker                        # config
-rm -rf ~/Documents/ParaTracker                      # outputs
-```
-
-**If you moved your outputs directory** via Settings (⚙ in the UI) to a custom location (e.g. an external drive), delete that location instead of `~/Documents/ParaTracker`. The path is stored under `outputs_dir` in `config.json` inside the config directory shown above; open that file before deleting the config directory if you're not sure.
-
-**Upgrading from v1.3.0 or earlier?** The app was previously named WormTracker. On first launch of v1.4.0 the old `WormTracker` config and outputs directories are automatically renamed to `ParaTracker` in place, so your existing jobs and settings carry over untouched. Nothing to do manually.
-
-**If you built from source**, you may also want to remove:
-
-- Python virtual environment: `make clean-python-env` (macOS/Linux, removes `~/venv/worm-tracker/`) or `.\dev.ps1 clean-python-env` (Windows, removes `.\venv\` in the project folder).
-- Downloaded YOLO model: `make clean-weights` or `.\dev.ps1 clean-weights` (removes `weights/` in the project folder).
-- The cloned project folder itself: just delete the `worm-tracker` directory.
+> **NumPy note:** NumPy must stay below 2 (2.x breaks the image-processing stack). It is pinned to `numpy<2` in `requirements.txt`; don't manually upgrade it.
 
 ### Manual run (advanced)
 
-If you'd rather start the servers yourself instead of using the scripts, run the backend and frontend in two terminals. This skips the automatic port-cleanup and clean shutdown the scripts provide, and you must have already downloaded the model (step 3).
+To start the servers yourself instead of using the scripts (skips the automatic port-cleanup and clean shutdown; download the model first):
 
 ```bash
 # Terminal 1: backend
 source ~/venv/worm-tracker/bin/activate      # macOS/Linux
-# .\venv\Scripts\activate                    # Windows
+# .\venv\Scripts\activate                    # Windows (PowerShell)
 uvicorn app.main:app --reload --port 8000
 
 # Terminal 2: frontend
@@ -246,29 +229,90 @@ cd frontend
 npm run dev
 ```
 
-## How to Use
+---
 
-1. Open the app in your browser
-2. Select the tracking pipeline: **Classical** (threshold-based, no training data required) or **YOLO** (deep learning, better on translucent or overlapping specimens)
-3. Adjust tracking parameters if needed (Keypoints, Area Threshold, Max Age, Persistence)
-4. Select one or more video files and click **Add to queue**
-5. Jobs are processed one at a time -- the **Job History** panel shows live progress
+## Building for Distribution
+
+Both packaged builds are **self-contained** — they bundle Python, FFmpeg, and the YOLO weights, so the target machine needs no Python, Node, or FFmpeg. The YOLO model has been bundled since v1.4.1, so **both pipelines work out of the box** in the packaged app; a user can still point `model_path` at a different `.pt` file in Settings (⚙).
+
+### macOS — building the DMG
+
+Produce a `ParaTracker.app` that runs on machines with no dev tools installed:
+
+```bash
+make dist        # full clean rebuild; ad-hoc signs the .app
+```
+
+Launch it locally with:
+
+```bash
+open dist/ParaTracker.app       # normal launch
+dist/ParaTracker/ParaTracker    # folder-mode binary; shows server logs in the terminal
+```
+
+Package the `.app` into a DMG for distribution (this is what we upload to GitHub Releases):
+
+```bash
+make release     # = make dist + make dmg
+```
+
+This produces `dist/ParaTracker-<version>-arm64.dmg`. Use `make dmg` on its own to repackage an existing `.app` without rebuilding.
+
+**Notes:**
+- **Apple Silicon only (arm64).** Intel Macs are not supported.
+- **Ad-hoc signed, not notarized** (this is free research software). Gatekeeper shows a warning on first launch; the bundled *READ ME FIRST.txt* walks users through the one-time right-click → **Open** step to bypass it.
+- The version comes from `CFBundleShortVersionString` in `worm_tracker.spec`.
+
+### Windows — building the .exe
+
+First complete the setup steps above (venv created, weights downloaded), then:
+
+```powershell
+.\build_windows.ps1
+```
+
+This builds the frontend and packages the app with PyInstaller into `dist\ParaTracker\` (an **onedir** build — a folder containing `ParaTracker.exe` plus an `_internal\` directory). Launch it by double-clicking:
+
+```
+dist\ParaTracker\ParaTracker.exe
+```
+
+It starts the server in the background and opens your browser automatically — **no console window**.
+
+**Notes:**
+- **Distribute by zipping the whole `dist\ParaTracker\` folder** (not just the `.exe` — it needs `_internal\`).
+- **Not code-signed.** Windows SmartScreen shows "Windows protected your PC" on first launch → click **More info → Run anyway** (once per install).
+- Uses a dedicated spec, `worm_tracker_windows.spec` (kept in sync with the macOS `worm_tracker.spec`).
+
+### Running a build someone sent you
+
+If you received a `ParaTracker` zip rather than building it yourself:
+
+1. Extract the zip anywhere on your computer.
+2. Open the extracted `ParaTracker` folder.
+3. Double-click **`ParaTracker.exe`** (Windows) or the `.app` (macOS).
+
+The app starts a local server in the background and opens your browser automatically — no installation. On Windows, click through the SmartScreen prompt (**More info → Run anyway**); on macOS, right-click → **Open** the first time.
+
+---
+
+## Using the App
+
+1. Open the app in your browser.
+2. Select the tracking pipeline: **Classical** (threshold-based, no training data required) or **YOLO** (deep learning, better on translucent or overlapping specimens).
+3. Adjust tracking parameters if needed (see below).
+4. Select one or more video files and click **Add to queue**.
+5. Jobs process one at a time — the **Job History** panel shows live progress.
 6. Click a completed job to load its results:
-   - **Before/after comparison slider**: drag to reveal original vs. tracked video
-   - **Download All (ZIP)**: tracked video, original, keypoints (`.npz`), metadata (`.yaml`), motion stats (`.json`)
-   - **Export CSV**: per-worm summary and per-frame timeseries data
-   - **Head/Tail Correction**: flip head/tail assignment for individual worms, then re-download
-   - **Motion Analysis**: per-worm heatmap and timeline chart (overall, head, mid-body, tail motion)
-7. Use **Re-run with new parameters** to reprocess the same file with adjusted parameters
-8. Use **Run on another file** to reset and process a new video
+   - **Before/after comparison slider** — drag to reveal original vs. tracked video.
+   - **Download All (ZIP)** — tracked video, original, keypoints (`.npz`), metadata (`.yaml`), motion stats (`.json`).
+   - **Export CSV** — per-worm summary and per-frame timeseries.
+   - **Head/Tail Correction** — flip head/tail for individual worms, then re-download.
+   - **Motion Analysis** — per-worm heatmap and timeline (overall, head, mid-body, tail).
+7. Use **Re-run with new parameters** to reprocess the same file with different settings.
+8. Use **Run on another file** to reset and process a new video.
 
-### Quitting the app (packaged .app only)
-
-Close the browser tab and the app shuts down automatically about 20 seconds later. If a job is still processing, the server waits for it to finish before quitting.
-
-If you double-click the app while it is already running, it brings the existing browser tab forward instead of starting a second copy.
-
-### Tracking Parameters
+### Tracking parameters
 
 | Parameter | Default | Description |
 |---|---|---|
@@ -277,60 +321,44 @@ If you double-click the app while it is already running, it brings the existing 
 | Max age | 35 | Frames to keep tracking a worm after it disappears |
 | Persistence | 50 | Minimum frames tracked to include a worm in output |
 
-## Export and Download Options
+### Quitting a packaged app
 
-ParaTracker lets you export results in a few places. The two **Metrics** page exports produce analysis-ready ZIPs; the **History** page offers per-job downloads of the raw tracking outputs.
- 
-### Metrics page: Condition comparison export
- 
-The **Export** button under *Condition comparison* downloads a ZIP for all the groups you've built. It contains:
- 
-- **Grouped comparison chart**: as both **PNG** and **SVG**.
-- **`group_summary.csv`**: one row per group × pipeline, with the worm count (`n`) and the mean and standard deviation for head, midbody, and tail motion.
-- **`per_worm.csv`**: the raw per-worm rows behind those averages: group label, video, pipeline, worm ID, and head / midbody / tail / overall motion, for every worm in every group.
-This export is the group-level result plus the underlying data, so you can recompute or dig into the numbers yourself. It does not include per-video metadata or raw keypoints; use the single-video export for those.
- 
-### Metrics page: Single video analysis export
- 
-The **Export** button under *Single video analysis* downloads a ZIP for the currently selected video. It contains:
- 
-- **Drill-down chart**: as both **PNG** and **SVG**.
-- That video's **summary CSV**, **timeseries CSV**, **`motion_stats.json`**, **metadata YAML**, and **`*_keypoints.npz`** (the raw keypoints).
-This is the complete, reproducible package for a single video.
+Close the browser tab and the app shuts down automatically about 20 seconds later (a heartbeat watchdog). If a job is still processing, the server waits for it to finish first. Double-clicking the app while it is already running brings the existing browser tab forward instead of starting a second copy.
 
-### History page: per-job downloads
- 
-Each job row in the **History** page has its own action buttons:
- 
-- **View**: opens the tracked result for that job in the app (the annotated video / comparison view).
-- **Video**: downloads the tracked output video (H.264 MP4).
-- **ZIP**: downloads the job's **package ZIP** (`{output_name}.zip`), containing:
+### Export and download options
+
+Results can be exported in a few places. The two **Metrics** page exports produce analysis-ready ZIPs; the **History** page offers per-job downloads of the raw tracking outputs.
+
+**Metrics page — Condition comparison export.** The **Export** button under *Condition comparison* downloads a ZIP for all the groups you've built:
+- **Grouped comparison chart** as **PNG** and **SVG**.
+- **`group_summary.csv`** — one row per group × pipeline, with worm count (`n`) and mean + standard deviation for head, mid-body, and tail motion.
+- **`per_worm.csv`** — the raw per-worm rows behind those averages (group, video, pipeline, worm ID, and head/mid-body/tail/overall motion).
+
+**Metrics page — Single video analysis export.** The **Export** button under *Single video analysis* downloads a ZIP for the selected video: the **drill-down chart** (PNG + SVG) plus that video's **summary CSV**, **timeseries CSV**, **`motion_stats.json`**, **metadata YAML**, and **`*_keypoints.npz`** — the complete, reproducible package for one video.
+
+**History page — per-job downloads.** Each job row has its own actions:
+- **View** — open the tracked result in the app.
+- **Video** — download the tracked H.264 MP4.
+- **ZIP** — the job's **package ZIP** (`{output_name}.zip`):
+
   | File | Description |
   | --- | --- |
-  | `*_original.*` | Copy of the originally uploaded video file |
-  | `*_tracked.mp4` | H.264-encoded video annotated with colored skeleton keypoints and worm IDs |
-  | `*.yaml` | Metadata: git version, timestamp, tracking parameters used, frame count |
-  | `*_keypoints.npz` | NumPy archive of per-worm skeleton keypoint coordinates over time (`[y, x]` per keypoint per frame; partial/edge-touching worms stored under a `partial_` key prefix) |
+  | `*_original.*` | Copy of the originally uploaded video |
+  | `*_tracked.mp4` | H.264 video annotated with colored skeleton keypoints and worm IDs |
+  | `*.yaml` | Metadata: git version, timestamp, parameters, frame count |
+  | `*_keypoints.npz` | Per-worm skeleton keypoints over time (`[y, x]` per keypoint per frame; edge-touching worms under a `partial_` key prefix) |
   | `*_motion_stats.json` | Per-worm motion values (overall, head, mid-body, tail) and aggregate stats |
-  
-  The package ZIP does **not** include the CSV files; those are in the separate `_data.zip` served by the "CSV" button.
-- **CSV**: downloads the job's **data ZIP** (`{output_name}_data.zip`), containing the per-worm summary CSV and the per-frame timeseries CSV.
+
+  The package ZIP does **not** include CSVs; those are in the separate `_data.zip`.
+- **CSV** — the job's **data ZIP** (`{output_name}_data.zip`):
+
   | File | Description |
   | --- | --- |
   | `*_summary.csv` | One row per worm: mean motion values (overall, head, mid-body, tail) |
   | `*_timeseries.csv` | One row per frame window: per-worm head/mid-body/tail motion over time |
-  
-- **Delete**: removes the job and its outputs.
+- **Delete** — remove the job and its outputs.
 
-  | File | Format | Contents |
-  |---|---|---|
-  | `*_tracked.mp4` | H.264 video | Annotated video with colored skeleton keypoints and worm IDs |
-  | `*_original.*` | original format | Copy of the input video |
-  | `*_metadata.yaml` | YAML | Git version, timestamp, parameters, frame count |
-  | `*_keypoints.npz` | NumPy archive | Per-worm keypoint data -- see details below |
-  | `*_motion_stats.json` | JSON | Per-worm motion values (overall, head, mid-body, tail) and aggregate stats |
-
-### Keypoints NPZ Format
+### Keypoints NPZ format
 
 ```python
 import numpy as np
@@ -341,30 +369,18 @@ with np.load("*_keypoints.npz") as npz:
     y, x = arr[0, 0]         # [y, x] position of keypoint 0 at frame 0
 ```
 
-**Array shape:** `(num_keypoints, num_frames, 2)` -- axis 0 is keypoints along the skeleton (index 0 = head, index -1 = tail), axis 1 is frames, axis 2 is `[y, x]` pixel coordinates.
+**Array shape:** `(num_keypoints, num_frames, 2)` — axis 0 is keypoints along the skeleton (index 0 = head, index -1 = tail), axis 1 is frames, axis 2 is `[y, x]` pixel coordinates.
 
 | Key pattern | Description |
 |---|---|
-| `"0"`, `"1"`, `"2"`, ... | Fully retained worms -- tracked for >= `persistence` frames and never touched a frame edge |
-| `"partial_0"`, `"partial_2"`, ... | Partial worms -- touched a frame edge, excluded from motion analysis |
+| `"0"`, `"1"`, `"2"`, ... | Fully retained worms — tracked for ≥ `persistence` frames and never touched a frame edge |
+| `"partial_0"`, `"partial_2"`, ... | Partial worms — touched a frame edge, excluded from motion analysis |
 
 **Head/tail orientation:** keypoint 0 = head (wider end), keypoint -1 = tail (narrower end). Correctable via the Head/Tail Correction tool.
 
+---
 
-## Troubleshooting
-
-| Problem | Solution |
-|---|---|
-| `command not found` (pip, python, node) | Ensure Python/Node are installed and on PATH. Restart terminal. |
-| Video won't play in browser | Install FFmpeg (see prerequisites) |
-| CORS / network errors | Make sure backend is running at `http://127.0.0.1:8000` |
-| Port already in use | `npm run dev -- --port 5174` |
-| "app is damaged" or "cannot verify developer" on macOS | Right-click the app, choose Open, then click Open in the dialog. Only needed on first launch. See the "READ ME FIRST.txt" bundled in the DMG. |
-| Packaged app launches but no browser tab appears | Check that a default browser is set. The port the app is using is written to `~/Documents/ParaTracker/paratracker.port`; open `http://127.0.0.1:<that-port>` manually. |
-| Double-clicked the app and nothing seems to happen | It is already running. It brought the existing browser tab forward; look at your open tabs. |
-| Server keeps running after closing the browser | Give it about 20 seconds (heartbeat watchdog). Force-quit from Activity Monitor if needed. |
-
-### CLI Usage (no UI)
+## CLI Usage (no UI)
 
 Two separate module entry points; there is no unified `--pipeline` flag.
 
@@ -386,9 +402,62 @@ python -m app.dl_worm_tracker input.mov output_dir \
 
 Both write to `output_dir/{timestamp}_{output_name}/` and produce the same output-file layout as the web UI.
 
+---
+
+## Troubleshooting
+
+| Problem | Solution |
+|---|---|
+| `command not found` (pip, python, node) | Ensure Python/Node are installed and on `PATH`. Restart the terminal. |
+| `pip install` fails on `numpy` | You're likely on Python 3.13+. `numpy<2` has no wheels there — install and use **Python 3.11**. |
+| `running scripts is disabled on this system` (Windows) | PowerShell blocks local scripts by default. Run `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`, or invoke via `powershell -ExecutionPolicy Bypass -File .\dev.ps1 <target>`. |
+| Video won't play in browser | FFmpeg is bundled (`imageio-ffmpeg`); if H.264 transcoding failed, the app falls back to a raw `.mp4` some browsers can't play. Check the backend logs for an FFmpeg error and re-run the job — the data files are unaffected. |
+| CORS / network errors | Make sure the backend is running at `http://127.0.0.1:8000`. |
+| Port already in use | `npm run dev -- --port 5174`. |
+| "app is damaged" / "cannot verify developer" on macOS | Right-click the app → **Open** → **Open**. First launch only. See the bundled *READ ME FIRST.txt*. |
+| Windows SmartScreen: "Windows protected your PC" | Click **More info → Run anyway**. First launch only (the app isn't code-signed). |
+| Packaged app launches but no browser tab appears | Ensure a default browser is set. The active port is written to `~/Documents/ParaTracker/paratracker.port`; open `http://127.0.0.1:<that-port>` manually. |
+| Double-clicked the app and nothing happens | It's already running — it brought the existing browser tab forward. Check your open tabs. |
+| Server keeps running after closing the browser | Give it ~20 seconds (heartbeat watchdog). Force-quit from Activity Monitor / Task Manager if needed. |
+
+---
+
+## Uninstalling
+
+A full uninstall removes three things: the app, its **config** directory, and its **outputs** directory (job history, results, settings). Removing only the app leaves your data on disk.
+
+**macOS:**
+
+```bash
+rm -rf /Applications/ParaTracker.app                # the app
+rm -rf ~/Library/Application\ Support/ParaTracker   # config (settings, model path)
+rm -rf ~/Documents/ParaTracker                      # outputs: jobs.db, videos, keypoints, CSVs, uploads
+```
+
+**Windows** (the app is a standalone folder, not an installer — nothing is registered in "Programs & Features"):
+
+```powershell
+Remove-Item -Recurse -Force "path\to\ParaTracker"                      # the extracted app folder
+Remove-Item -Recurse -Force "$env:APPDATA\ParaTracker"                 # config
+Remove-Item -Recurse -Force "$env:USERPROFILE\Documents\ParaTracker"   # outputs
+```
+
+**Linux:**
+
+```bash
+rm -rf ~/.config/ParaTracker                        # config
+rm -rf ~/Documents/ParaTracker                      # outputs
+```
+
+- **Moved your outputs directory** via Settings (⚙) to a custom location? Delete that location instead of `~/Documents/ParaTracker`. The path is stored under `outputs_dir` in `config.json` in the config directory above.
+- **Upgrading from v1.3.0 or earlier?** The app was previously named *WormTracker*. On first launch of v1.4.0+, the old `WormTracker` config and outputs directories are automatically renamed to `ParaTracker` in place — your jobs and settings carry over untouched.
+- **Built from source?** Also run `make clean-python-env` / `.\dev.ps1 clean-python-env` (venv), `make clean-weights` / `.\dev.ps1 clean-weights` (model), and delete the project folder.
+
+---
+
 ## Authors
 
-- [Aaveg Shangari](https://avishangari.github.io/aaveg-portfolio/index.html) (*[linkedin](https://www.linkedin.com/in/aaveg-shangari/)*)
+- [Aaveg Shangari](https://avishangari.github.io/aaveg-portfolio/index.html) (*[LinkedIn](https://www.linkedin.com/in/aaveg-shangari/)*)
 - Faisal Qureshi
 
 [VCLab](https://www.vclab.ca), Faculty of Science, Ontario Tech University

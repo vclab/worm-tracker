@@ -119,13 +119,15 @@ Partial worms (touching frame edges) are tracked but excluded from final output.
 
 ## Development
 
-Both platforms need the same three prerequisites installed by the user: **Python 3.11**, **Node.js 18+**, and **FFmpeg**.
+Both platforms need two user-installed prerequisites: **Python 3.11** and **Node.js 18+**. Use Python **3.11 specifically** — `requirements.txt` pins `numpy<2` (NumPy 2.x breaks the scikit-image/opencv stack), and NumPy 1.x has no wheels for Python 3.13+, so `pip install -r requirements.txt` fails on newer Pythons.
+
+**FFmpeg is NOT a user prerequisite.** `requirements.txt` includes `imageio-ffmpeg`, which bundles a static FFmpeg binary; `app/main.py:_resolve_ffmpeg()` uses `imageio_ffmpeg.get_ffmpeg_exe()` and only falls back to a system FFmpeg on `PATH`. Neither the Makefile nor `dev.ps1` checks for system FFmpeg.
 
 ### macOS / Linux workflow
 
-Prerequisites (macOS via Homebrew):
+Prerequisites (macOS via Homebrew; `make` comes from Xcode Command Line Tools, `xcode-select --install`):
 ```bash
-brew install python@3.11 node ffmpeg
+brew install python@3.11 node
 ```
 
 One-time setup + run:
@@ -154,8 +156,13 @@ Prerequisites (use PowerShell):
 ```powershell
 winget install Python.Python.3.11
 winget install OpenJS.NodeJS
-choco install ffmpeg
 ```
+
+PowerShell blocks local scripts by default, so `.\dev.ps1` fails the first time with `running scripts is disabled on this system`. Allow local scripts for the current user once (no admin needed):
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+```
+(Or invoke without changing policy: `powershell -ExecutionPolicy Bypass -File .\dev.ps1 <target>`.)
 
 One-time setup + run:
 ```powershell

@@ -2,7 +2,10 @@ fastapi
 uvicorn[standard]
 python-multipart
 opencv-python-headless
-numpy
+# NumPy 2.x breaks the pinned image-processing stack (scikit-image/opencv);
+# stay on 1.x. Note: NumPy 1.x has no wheels for Python 3.13+, so this pin
+# requires Python 3.11 (the supported version) to install.
+numpy<2
 scikit-image
 scipy
 tqdm
