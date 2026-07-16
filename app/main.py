@@ -41,14 +41,21 @@ async def _lifespan(application: FastAPI):
     # Only the serving process runs lifespan; the reloader's module import does not.
     # Guard against hypothetical double-invocation within the same process.
     if not _worker_started:
+        # Acquire the outputs-folder lock first, outside the DB try/except.
+        # If another ParaTracker is already running against this folder,
+        # _acquire_outputs_lock() raises RuntimeError; letting it propagate
+        # makes uvicorn report lifespan.startup.failed and exit, so the
+        # duplicate instance dies cleanly instead of half-running the UI
+        # without a queue worker. (POSIX only; Windows has no flock,
+        # so two Windows instances still coexist.)
+        _acquire_outputs_lock()
         _worker_started = True
         try:
-            _acquire_outputs_lock()
             init_db()
             migrate_existing_outputs()
         except Exception as _db_exc:
             logger.critical(
-                "Failed to initialize database at %s: %s — queue worker will not start",
+                "Failed to initialize database at %s: %s; queue worker will not start",
                 DB_PATH, _db_exc,
             )
         else:
@@ -68,7 +75,7 @@ async def _lifespan(application: FastAPI):
         _lock_fh = None
 
 
-app = FastAPI(title="Worm Tracker API (Local)", lifespan=_lifespan)
+app = FastAPI(title="ParaTracker API (Local)", lifespan=_lifespan)
 
 # Active processing jobs: job_id -> {"cancel_event": Event}
 active_jobs: dict[str, dict] = {}
@@ -105,8 +112,8 @@ APP_DIR = Path(__file__).resolve().parent
 # in sync with WEIGHTS_SHA256 in the Makefile.
 DEFAULT_WEIGHTS_SHA256 = "f7712cb708c94a788f36fe8cbf9c1f479e399286ab3c9afbbb318e4c6d9f80fe"
 
-# PyInstaller bundle: data files land in sys._MEIPASS (_internal/ dir), mirroring
-# _find_frontend_dist() below. Normal run: weights/ lives next to the project root.
+# Packaged app: PyInstaller extracts data files under sys._MEIPASS. Source run:
+# weights/ lives next to the app package at the project root.
 if getattr(sys, "frozen", False):
     _WEIGHTS_DIR = Path(sys._MEIPASS) / "weights"
 else:
@@ -159,18 +166,18 @@ FFMPEG_BIN = _resolve_ffmpeg()
 # ---------------------------------------------------------------------------
 # Outputs-directory lock — one process per outputs folder
 # ---------------------------------------------------------------------------
-# We hold an exclusive flock on wormtracker.lock for the lifetime of the
+# We hold an exclusive flock on paratracker.lock for the lifetime of the
 # process.  The kernel releases the lock automatically on process death
 # (even SIGKILL), so orphaned instances can never block a fresh start.
 
-_LOCK_PATH = OUTPUTS / "wormtracker.lock"
+_LOCK_PATH = OUTPUTS / "paratracker.lock"
 _lock_fh = None   # kept open to hold the lock
 
 
 def _acquire_outputs_lock() -> None:
     """Acquire an exclusive advisory lock on the outputs directory.
 
-    Raises RuntimeError if another WormTracker process already owns it.
+    Raises RuntimeError if another ParaTracker process already owns it.
     No-op on Windows (fcntl unavailable; SQLite WAL still prevents DB
     corruption, just without single-instance enforcement).
     """
@@ -184,7 +191,7 @@ def _acquire_outputs_lock() -> None:
     except OSError:
         fh.close()
         raise RuntimeError(
-            f"Another WormTracker process is already using {OUTPUTS}. "
+            f"Another ParaTracker process is already using {OUTPUTS}. "
             "Close the other instance first."
         )
     fh.write(str(os.getpid()))
@@ -281,7 +288,7 @@ def migrate_existing_outputs():
     with get_db(readonly=True) as conn:
         existing = {r[0] for r in conn.execute("SELECT job_id FROM jobs").fetchall()}
         # Directories that live inside OUTPUTS but are not job output folders.
-        _NON_JOB_DIRS = {"uploads", "wormtracker.lock"}
+        _NON_JOB_DIRS = {"uploads", "paratracker.lock", "paratracker.port"}
         for job_dir in OUTPUTS.iterdir():
             if not job_dir.is_dir():
                 continue
@@ -597,7 +604,7 @@ def process_job(job_id: str):
     # Error from tracker
     if error_holder[0]:
         tb = "".join(traceback.format_exception(type(error_holder[0]), error_holder[0], error_holder[0].__traceback__))
-        print(f"[WORMTRACKER] Job {job_id} FAILED during tracking:\n{tb}", flush=True)
+        print(f"[PARATRACKER] Job {job_id} FAILED during tracking:\n{tb}", flush=True)
         logger.error("Job %s failed during tracking:\n%s", job_id, tb)
         try:
             if saved_path.exists():
@@ -615,7 +622,7 @@ def process_job(job_id: str):
     try:
         _do_post_processing(job_id, job_dir, original_filename, saved_path)
     except Exception as e:
-        print(f"[WORMTRACKER] Job {job_id} FAILED during post-processing:\n{traceback.format_exc()}", flush=True)
+        print(f"[PARATRACKER] Job {job_id} FAILED during post-processing:\n{traceback.format_exc()}", flush=True)
         logger.error("Job %s failed during post-processing:\n%s", job_id, traceback.format_exc())
         try:
             if saved_path.exists():
@@ -700,7 +707,7 @@ if getattr(sys, "frozen", False):
 
 @app.get("/api/health")
 def root():
-    return {"ok": True, "message": "Worm Tracker API running"}
+    return {"ok": True, "message": "ParaTracker API running"}
 
 
 @app.get("/api/settings")

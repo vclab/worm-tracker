@@ -1,5 +1,5 @@
 """
-CSV validation script for Worm Tracker exports.
+CSV validation script for ParaTracker exports.
 
 Usage:
     python validate_csv.py <output_dir>
@@ -428,7 +428,7 @@ def generate_plots(ts_worms, output_path):
 # ─────────────────────────────────────────────────────────────────────────────
 
 def main():
-    parser = argparse.ArgumentParser(description="Validate worm tracker CSV exports")
+    parser = argparse.ArgumentParser(description="Validate ParaTracker CSV exports")
     parser.add_argument("output_dir", help="Job output subfolder (contains _keypoints.npz etc.)")
     parser.add_argument("--pre-flip", metavar="DIR",
                         help="Path to data folder from BEFORE the flip (contains *_timeseries.csv)")

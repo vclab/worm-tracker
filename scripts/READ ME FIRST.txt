@@ -1,0 +1,26 @@
+ParaTracker: How to open on macOS
+====================================
+
+1) Drag ParaTracker into the Applications folder (shown in this window).
+
+2) Open your Applications folder in Finder.
+
+3) RIGHT-CLICK on ParaTracker and choose "Open".
+   (Do not double-click the first time; macOS will block it.)
+
+4) In the dialog that appears, click "Open".
+
+You only need to do this once. After that, ParaTracker opens like any
+other app when you double-click it.
+
+
+Why is this step needed?
+------------------------
+
+macOS blocks apps whose developers have not paid Apple's yearly $99
+Developer Program fee. ParaTracker is free research software, so we
+have not paid that fee. The right-click and Open step tells macOS
+that you trust the app, and it never asks again.
+
+
+Support: https://github.com/vclab/worm-tracker

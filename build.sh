@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build.sh — Build WormTracker.app
+# build.sh — Build ParaTracker.app
 # Usage: ./build.sh
 set -euo pipefail
 
@@ -21,10 +21,13 @@ cd "$PROJECT_DIR"
 echo "==> Running PyInstaller"
 pyinstaller worm_tracker.spec --clean --noconfirm
 
+echo "==> Ad-hoc signing the app bundle"
+"$PROJECT_DIR/scripts/sign_app.sh" "$PROJECT_DIR/dist/ParaTracker.app"
+
 echo ""
 echo "Build complete!"
-echo "  App bundle : dist/WormTracker.app"
-echo "  Launch     : open dist/WormTracker.app"
+echo "  App bundle : dist/ParaTracker.app"
+echo "  Launch     : open dist/ParaTracker.app"
 echo ""
 echo "  Or run directly (shows server logs):"
-echo "  dist/WormTracker/WormTracker"
+echo "  dist/ParaTracker/ParaTracker"

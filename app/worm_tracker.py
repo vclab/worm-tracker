@@ -777,7 +777,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Worm tracking from video using skeleton-based interpolation.\n\nExample:\n  python worm_tracker.py input.mov output_dir --keypoints 15 --min-area 50 --max-age 35",
+        description="ParaTracker classical pipeline: worm tracking from video using skeleton-based interpolation.\n\nExample:\n  python -m app.worm_tracker input.mov output_dir --keypoints 15 --min-area 50 --max-age 35",
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument('video_path', type=str, help='Path to input video')

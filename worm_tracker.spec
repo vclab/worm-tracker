@@ -1,6 +1,6 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-PyInstaller spec for WormTracker.
+PyInstaller spec for ParaTracker.
 
 Build with:
     pyinstaller worm_tracker.spec
@@ -25,6 +25,9 @@ datas = [
     (str(PROJECT / "frontend" / "dist"), "frontend_dist"),
     # App Python package (worm_tracker.py, etc.)
     (str(PROJECT / "app"), "app"),
+    # YOLO weights: resolved at runtime via sys._MEIPASS / "weights"
+    # (see DEFAULT_WEIGHTS in app/main.py)
+    (str(PROJECT / "weights"), "weights"),
     # imageio_ffmpeg ships its own static ffmpeg binary — include the whole package
     *([(IMAGEIO_FFMPEG_DIR, "imageio_ffmpeg")] if IMAGEIO_FFMPEG_DIR else []),
 ]
@@ -33,9 +36,15 @@ datas = [
 # Hidden imports that PyInstaller's static analysis misses
 # ---------------------------------------------------------------------------
 hidden_imports = [
-    # App modules — listed explicitly so PyInstaller traces all their imports
+    # App modules — listed explicitly so PyInstaller traces all their imports.
+    # dl_worm_tracker is imported lazily inside a function in app.main
+    # (guarded by pipeline selection), so it needs an explicit entry to
+    # avoid being dropped by static analysis.
     "app.main",
     "app.worm_tracker",
+    "app.dl_worm_tracker",
+    "app.aggregation",
+    "app.config",
     # uvicorn internals
     "uvicorn.logging",
     "uvicorn.loops",
@@ -76,6 +85,9 @@ hidden_imports = [
     "yaml",
     "pydantic",
     "tqdm",
+    # pandas is required by app.aggregation and by CSV export in app.main;
+    # do NOT add it to excludes below.
+    "pandas",
     # Python standard library items sometimes missed
     "sqlite3",
     "csv",
@@ -102,7 +114,6 @@ a = Analysis(
         "jupyter",
         "notebook",
         "pytest",
-        "pandas",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -120,7 +131,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name="WormTracker",
+    name="ParaTracker",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -141,18 +152,18 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name="WormTracker",
+    name="ParaTracker",
 )
 
 app_bundle = BUNDLE(
     coll,
-    name="WormTracker.app",
+    name="ParaTracker.app",
     icon=str(PROJECT / "paratracker.icns"),
-    bundle_identifier="ca.vclab.wormtracker",
+    bundle_identifier="ca.vclab.paratracker",
     info_plist={
         "NSHighResolutionCapable": True,
         "NSPrincipalClass": "NSApplication",
-        "CFBundleShortVersionString": "1.2.0",
-        "CFBundleVersion": "1.2.0",
+        "CFBundleShortVersionString": "1.4.1",
+        "CFBundleVersion": "1.4.1",
     },
 )
