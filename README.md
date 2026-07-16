@@ -166,7 +166,7 @@ Produces `dist/ParaTracker-<version>-arm64.dmg`. `make release` is `make dist` f
 
 The DMG is Apple Silicon only (arm64). It is ad-hoc signed but NOT notarized (we have not paid Apple's yearly Developer Program fee since this is free research software). The DMG bundles a "READ ME FIRST.txt" that walks first-launch users through the required right-click + Open step to bypass Gatekeeper.
 
-**YOLO pipeline in the packaged app**: the model file is not yet bundled inside the `.app` (planned for the next release). For now, the packaged app supports only the classical pipeline out of the box. To use YOLO, build from source and download the weights via `make weights`.
+**YOLO pipeline in the packaged app**: the model file is bundled inside the app (since v1.4.1), so both the classical and YOLO pipelines work out of the box — nothing extra to download. To use a different model, point `model_path` at another `.pt` file in Settings (⚙).
 
 ### Standalone Windows App (no setup on the target machine)
 
@@ -206,9 +206,10 @@ rm -rf ~/Library/Application\ Support/ParaTracker   # config (settings, YOLO mod
 rm -rf ~/Documents/ParaTracker                      # outputs: jobs.db, tracked videos, keypoints, CSVs, uploads
 ```
 
-**Windows** (no packaged installer yet; run from source):
+**Windows** (the app is a standalone folder, not an installer — there is nothing registered in "Programs & Features"):
 
 ```powershell
+Remove-Item -Recurse -Force "path\to\ParaTracker"                      # the extracted app folder, wherever you put it
 Remove-Item -Recurse -Force "$env:APPDATA\ParaTracker"                 # config
 Remove-Item -Recurse -Force "$env:USERPROFILE\Documents\ParaTracker"   # outputs
 ```
