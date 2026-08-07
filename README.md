@@ -23,7 +23,7 @@ Scoring worm motility by hand is slow, subjective, and hard to reproduce. Existi
 - **Region-resolved motion.** Separate metrics for **head**, **mid-body**, and **tail**, plus an overall score, per worm and over time.
 - **Head/tail correction built in.** Auto-orientation is good, but you can flip any worm's head/tail assignment in the UI and everything downstream recomputes.
 - **Cross-condition comparison.** Group videos into conditions and export grouped comparison charts and statistics.
-- **Runs entirely on your machine.** No account, no server, no upload. Ships as a signed macOS `.app` / DMG and a standalone Windows `.exe`.
+- **Runs entirely on your machine.** No account, no server, no upload. Ships as a macOS `.app` / DMG and a Windows installer (or portable `.exe` folder).
 
 ### See it in action
 
@@ -209,6 +209,7 @@ Open **<http://127.0.0.1:5173>**. Press **Ctrl+C** to stop both. Linux is a deve
 | `.\dev.ps1 venv` | Create the Python environment (`.\venv`) and install requirements |
 | `.\dev.ps1 build` | Install frontend dependencies |
 | `.\dev.ps1 clean` / `clean-python` / `clean-python-env` / `clean-frontend` / `clean-weights` | Cleanup |
+| `.\build_windows.ps1` | Build the `.exe` + installer for distribution (separate script; see [Building for Distribution](#building-for-distribution)) |
 
 > The venv location differs per OS: `~/venv/worm-tracker` on macOS/Linux, `.\venv` inside the project folder on Windows.
 
@@ -263,30 +264,45 @@ This produces `dist/ParaTracker-<version>-arm64.dmg`. Use `make dmg` on its own 
 - **Ad-hoc signed, not notarized** (this is free research software). Gatekeeper shows a warning on first launch; the bundled *READ ME FIRST.txt* walks users through the one-time right-click → **Open** step to bypass it.
 - The version comes from `CFBundleShortVersionString` in `worm_tracker.spec`.
 
-### Windows — building the .exe
+### Windows — building the .exe and installer
 
-First complete the setup steps above (venv created, weights downloaded), then:
+First complete the setup steps above (venv created, weights downloaded). Optionally install [Inno Setup](https://jrsoftware.org/isinfo.php) so the build can also produce a one-click installer:
+
+```powershell
+winget install JRSoftware.InnoSetup   # optional — enables the installer step
+```
+
+Then build:
 
 ```powershell
 .\build_windows.ps1
 ```
 
-This builds the frontend and packages the app with PyInstaller into `dist\ParaTracker\` (an **onedir** build — a folder containing `ParaTracker.exe` plus an `_internal\` directory). Launch it by double-clicking:
+This builds the frontend and packages the app with PyInstaller into `dist\ParaTracker\` (an **onedir** build — a folder containing `ParaTracker.exe` plus an `_internal\` directory). If Inno Setup is installed, it then wraps that folder into a single installer:
 
 ```
-dist\ParaTracker\ParaTracker.exe
+dist\ParaTracker-<version>-Setup.exe
 ```
 
-It starts the server in the background and opens your browser automatically — **no console window**.
+If Inno Setup is **not** found, the installer step is skipped with a warning (the onedir folder is still built). Pass `-SkipInstaller` to skip it deliberately.
+
+Launch the freshly built app locally by double-clicking `dist\ParaTracker\ParaTracker.exe`. It starts the server in the background and opens your browser automatically — **no console window**.
+
+**Distribution — two options:**
+- **Installer (recommended):** ship `ParaTracker-<version>-Setup.exe`. It installs into `Program Files`, adds a Start Menu shortcut (and an optional desktop icon), and registers an uninstaller in **Programs & Features**. Re-running a newer installer upgrades in place; user data (job history, settings) is left untouched.
+- **Portable zip:** zip the whole `dist\ParaTracker\` folder (not just the `.exe` — it needs `_internal\`). The recipient extracts and double-clicks `ParaTracker.exe`; nothing is installed or registered.
 
 **Notes:**
-- **Distribute by zipping the whole `dist\ParaTracker\` folder** (not just the `.exe` — it needs `_internal\`).
-- **Not code-signed.** Windows SmartScreen shows "Windows protected your PC" on first launch → click **More info → Run anyway** (once per install).
-- Uses a dedicated spec, `worm_tracker_windows.spec` (kept in sync with the macOS `worm_tracker.spec`).
+- **Not code-signed.** Windows SmartScreen shows "Windows protected your PC" on first launch of either the installer or the exe → click **More info → Run anyway** (once).
+- The installer runs elevated (Program Files needs admin); accept the UAC prompt.
+- The version comes from `CFBundleShortVersionString` in `worm_tracker.spec` (the single source of truth for both platforms).
+- Uses a dedicated spec, `worm_tracker_windows.spec` (kept in sync with the macOS `worm_tracker.spec`), and the installer script `installer\paratracker.iss`.
 
 ### Running a build someone sent you
 
-If you received a `ParaTracker` zip rather than building it yourself:
+**Windows installer (`ParaTracker-<version>-Setup.exe`):** double-click it, click through the SmartScreen prompt (**More info → Run anyway**), accept the UAC prompt, and follow the wizard. Launch afterwards from the Start Menu. Uninstall later from **Settings → Apps** (or Programs & Features).
+
+**Portable zip (Windows or macOS):**
 
 1. Extract the zip anywhere on your computer.
 2. Open the extracted `ParaTracker` folder.
@@ -434,10 +450,14 @@ rm -rf ~/Library/Application\ Support/ParaTracker   # config (settings, model pa
 rm -rf ~/Documents/ParaTracker                      # outputs: jobs.db, videos, keypoints, CSVs, uploads
 ```
 
-**Windows** (the app is a standalone folder, not an installer — nothing is registered in "Programs & Features"):
+**Windows:** first remove the app itself —
+
+- **Installed via `ParaTracker-<version>-Setup.exe`:** uninstall from **Settings → Apps → Installed apps → ParaTracker → Uninstall** (or Control Panel → Programs & Features). This removes the Program Files install, Start Menu shortcut, and registry entry.
+- **Portable zip:** just delete the extracted folder — `Remove-Item -Recurse -Force "path\to\ParaTracker"`.
+
+Either way, the uninstaller/deletion leaves your **data** behind — remove it separately:
 
 ```powershell
-Remove-Item -Recurse -Force "path\to\ParaTracker"                      # the extracted app folder
 Remove-Item -Recurse -Force "$env:APPDATA\ParaTracker"                 # config
 Remove-Item -Recurse -Force "$env:USERPROFILE\Documents\ParaTracker"   # outputs
 ```
