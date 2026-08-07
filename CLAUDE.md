@@ -16,7 +16,7 @@ The code is designed for four deployment settings:
 | Target | Status | Purpose |
 |---|---|---|
 | macOS desktop (arm64) | Packaging **implemented** | Primary user platform. Distributed as a signed DMG produced by `make release`. |
-| Windows desktop | Packaging **implemented** (onedir exe) | Primary user platform. Dev workflow via `dev.ps1`; `build_windows.ps1` produces `dist\ParaTracker\ParaTracker.exe`. Installer (Inno Setup) + code signing still on the roadmap (see `## Distribution` below). |
+| Windows desktop | Packaging **implemented** (onedir exe + Inno Setup installer) | Primary user platform. Dev workflow via `dev.ps1`; `build_windows.ps1` produces `dist\ParaTracker\ParaTracker.exe` and (if Inno Setup is installed) `dist\ParaTracker-<version>-Setup.exe`. Code signing still on the roadmap (see `## Distribution` below). |
 | Linux desktop | Dev only | Not a distribution target. The Makefile workflow runs on Linux; there is no packaged `.deb`/`.rpm`/AppImage. |
 | Cloud / server | Ad-hoc | No packaged deployment. Run `uvicorn app.main:app` directly, skip `launcher.py`. See `## Cloud deployment` below. |
 
@@ -41,7 +41,9 @@ scripts/                Packaging helpers (macOS-specific for now)
   READ ME FIRST.txt     First-launch instructions bundled in the DMG
 Makefile                macOS/Linux dev + macOS distribution
 dev.ps1                 Windows dev workflow
-build_windows.ps1       Windows distribution: build the onedir ParaTracker.exe
+build_windows.ps1       Windows distribution: build the onedir ParaTracker.exe + Inno Setup installer
+installer/
+  paratracker.iss       Inno Setup script (wraps the onedir build into ParaTracker-<v>-Setup.exe)
 build.sh                bash builder invoked by `make dist`
 requirements.txt        Python deps
 weights/                YOLO model (downloaded by `make weights`, git-ignored)
@@ -217,9 +219,9 @@ Version is read from `CFBundleShortVersionString` in `worm_tracker.spec`; bump t
 
 **YOLO weights are bundled** (since v1.4.1). `worm_tracker.spec` includes `(str(PROJECT / "weights"), "weights")` in `datas`, and `app/main.py` branches `DEFAULT_WEIGHTS` on `sys.frozen`: `sys._MEIPASS/weights/` when packaged, `APP_DIR.parent/weights/` when running from source. Both classical and YOLO pipelines work out of the box in the DMG. A user can still override the default by setting `model_path` in Settings (⚙) to point at a different `.pt` file.
 
-### Windows (implemented — onedir exe)
+### Windows (implemented — onedir exe + Inno Setup installer)
 
-`build_windows.ps1` produces `dist\ParaTracker\ParaTracker.exe` (PyInstaller **onedir** — a folder containing the exe plus `_internal\`). Distribute by zipping the `dist\ParaTracker\` folder; the recipient extracts it and double-clicks `ParaTracker.exe` (no Python, Node, or FFmpeg needed on the target machine — FFmpeg is bundled).
+`build_windows.ps1` produces `dist\ParaTracker\ParaTracker.exe` (PyInstaller **onedir** — a folder containing the exe plus `_internal\`) and, when Inno Setup is installed, wraps it into `dist\ParaTracker-<version>-Setup.exe`. Distribute either the installer (recommended) or a zip of the `dist\ParaTracker\` folder; in both cases the target machine needs no Python, Node, or FFmpeg (FFmpeg is bundled).
 
 The build pipeline (`build_windows.ps1`):
 
@@ -227,6 +229,7 @@ The build pipeline (`build_windows.ps1`):
 2. Requires the YOLO weights to be present (`.\dev.ps1 weights` first) — the exe fails to build without them.
 3. Builds the frontend with `VITE_API_URL=""` (same-origin). It writes `frontend/.env.production.local` with an empty `VITE_API_URL` because Windows drops env vars assigned `""` (`SetEnvironmentVariable` treats `""` as unset), so `$env:VITE_API_URL = ""` never reaches Vite.
 4. Runs `pyinstaller worm_tracker_windows.spec --clean --noconfirm`.
+5. Builds the installer: reads the version from `worm_tracker.spec` (`CFBundleShortVersionString`), locates `ISCC.exe` (PATH, then the standard `Inno Setup 6` install dirs), and runs it against `installer\paratracker.iss` passing `/DMyAppVersion=<version>`. If `ISCC.exe` isn't found, this step is **skipped with a warning** (the onedir build still succeeds) and prints `winget install JRSoftware.InnoSetup`. Pass `-SkipInstaller` to skip it deliberately.
 
 **Uses a dedicated spec, `worm_tracker_windows.spec`** — NOT the cross-platform `worm_tracker.spec`, which ends with a macOS-only `BUNDLE` step and references the `.icns` icon. The Windows spec is a `COLLECT`-only onedir build. Its `datas`, `hiddenimports`, and `excludes` are kept in sync with `worm_tracker.spec`; if you add a hidden import or bundled data file to one, mirror it in the other. It explicitly lists every `app.*` module (including the lazily-imported `app.dl_worm_tracker`) and `pandas`, so both pipelines and the aggregate/compare pages work in the packaged exe.
 
@@ -234,12 +237,19 @@ The build pipeline (`build_windows.ps1`):
 
 **`launcher.py:_silence_stdio()`** is required for the windowless build: with `console=False`, `sys.stdout`/`sys.stderr` are `None`, and any write to them — `tqdm`, the `print()` calls in `app/main.py`, uvicorn's log formatter calling `.isatty()` — would raise `AttributeError`. `main()` calls it first thing when `sys.frozen`, redirecting both to `os.devnull`.
 
-**Icon.** The spec uses `paratracker.ico` if it exists next to the spec, otherwise the exe ships with PyInstaller's default icon. No `.ico` is committed yet (only `paratracker.icns` for macOS); add one to brand the exe/taskbar.
+**Icon.** Both the spec and `installer\paratracker.iss` use `paratracker.ico` if it exists at the repo root, otherwise they fall back to PyInstaller's / Inno Setup's default icon. No `.ico` is committed yet (only `paratracker.icns` for macOS); add one to brand the exe, taskbar, installer, and shortcuts.
+
+**Installer (`installer\paratracker.iss`).** Inno Setup script that wraps the onedir folder into a single `ParaTracker-<version>-Setup.exe`:
+
+- Installs into `{autopf}\ParaTracker` (Program Files; `PrivilegesRequired=admin`, so it prompts for elevation), x64 only.
+- Adds a Start Menu shortcut, an optional (unchecked-by-default) desktop icon, an uninstaller, and a "Programs & Features" entry. Offers a "launch now" checkbox on the final page.
+- `AppId` is a fixed GUID (`{{A3F5C2E1-...}`) — **never change it**, or upgrades install side-by-side instead of replacing the prior version. `AppVersion`/`VersionInfoVersion` come from the `/DMyAppVersion` define that `build_windows.ps1` passes; the `#ifndef` fallback (`0.0.0`) only applies to a bare hand-invocation.
+- **User data is untouched on uninstall by design** — the installer only writes under `{app}`, so the outputs folder (`Documents\ParaTracker\`) and config (`%APPDATA%\ParaTracker\config.json`) survive uninstall and upgrades. A full uninstall means removing the app, then deleting those two folders by hand.
+- Build by hand (once `dist\ParaTracker\` exists): `& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=<version> installer\paratracker.iss`.
 
 Not yet done (roadmap):
 
-- **Installer** (Inno Setup): install to `Program Files`, Start Menu shortcut, uninstaller, "Programs & Features" entry. For now distribution is a zipped onedir folder.
-- **Code signing** (`signtool`): no cert planned. SmartScreen shows "Windows protected your PC" on first launch; users click "More info" → "Run anyway".
+- **Code signing** (`signtool`): no cert planned. SmartScreen shows "Windows protected your PC" on first launch (for both the installer and the exe); users click "More info" → "Run anyway".
 - **Single-instance mutex**: `fcntl` is unavailable on Windows, so the outputs-folder flock is skipped (see the single-instance notes above). A `CreateMutex`-via-`ctypes` guard is still outstanding.
 - **CI/CD** (`.github/workflows/release.yml`) to build macOS + Windows artifacts on native runners.
 
@@ -333,7 +343,7 @@ Reproducible from source; all git-ignored.
 | all | `<project>/frontend/node_modules/` | npm deps |
 | all | `<project>/frontend/dist/` | Vite production build |
 | all | `<project>/build/` | PyInstaller work directory |
-| all | `<project>/dist/` | PyInstaller output (`ParaTracker.app`, folder-mode `ParaTracker/`, `.dmg`) |
+| all | `<project>/dist/` | PyInstaller output (`ParaTracker.app`, folder-mode `ParaTracker/`, `.dmg`, Windows `ParaTracker-<v>-Setup.exe`) |
 | all | `<project>/__pycache__/` (throughout) | Python bytecode |
 
 ### Packaged app bundle contents

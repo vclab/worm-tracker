@@ -1,5 +1,9 @@
 # build_windows.ps1 - Build ParaTracker.exe (Windows onedir PyInstaller package)
-# Usage: .\build_windows.ps1
+#                     and, if Inno Setup is available, the ParaTracker-<v>-Setup.exe installer.
+# Usage: .\build_windows.ps1 [-SkipInstaller]
+param(
+    [switch]$SkipInstaller
+)
 
 $ErrorActionPreference = "Stop"
 
@@ -39,7 +43,63 @@ Write-Host "==> Running PyInstaller"
 & "$VenvDir\Scripts\pyinstaller.exe" worm_tracker_windows.spec --clean --noconfirm
 
 Write-Host ""
-Write-Host "Build complete!"
+Write-Host "Onedir build complete!"
 Write-Host "  App folder : dist\ParaTracker\"
 Write-Host "  Launch     : dist\ParaTracker\ParaTracker.exe"
+Write-Host ""
+
+# ---------------------------------------------------------------------------
+# Installer (Inno Setup) - optional. Skips gracefully if ISCC.exe isn't found.
+# ---------------------------------------------------------------------------
+if ($SkipInstaller) {
+    Write-Host "==> Skipping installer (-SkipInstaller)"
+    exit 0
+}
+
+Write-Host "==> Building Windows installer (Inno Setup)"
+
+# Version is the single source of truth in worm_tracker.spec's Info.plist.
+$specText = Get-Content "$ProjectDir\worm_tracker.spec" -Raw
+$verMatch = [regex]::Match($specText, '"CFBundleShortVersionString"\s*:\s*"([^"]+)"')
+if (-not $verMatch.Success) {
+    Write-Error "ERROR: could not read CFBundleShortVersionString from worm_tracker.spec"
+    exit 1
+}
+$AppVersion = $verMatch.Groups[1].Value
+Write-Host "    Version: $AppVersion"
+
+# Locate ISCC.exe: PATH first, then the standard Inno Setup 6 install dirs.
+$iscc = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
+if (-not $iscc) {
+    foreach ($candidate in @(
+        "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+        "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+        # winget installs Inno Setup per-user here by default
+        "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+    )) {
+        if (Test-Path $candidate) { $iscc = $candidate; break }
+    }
+}
+
+if (-not $iscc) {
+    Write-Host ""
+    Write-Warning "Inno Setup (ISCC.exe) not found - skipping installer."
+    Write-Host "  The onedir build in dist\ParaTracker\ is ready; you can still zip and distribute it."
+    Write-Host "  To build the installer, install Inno Setup and re-run this script:"
+    Write-Host "      winget install JRSoftware.InnoSetup"
+    Write-Host "  Or build it by hand once dist\ParaTracker\ exists:"
+    Write-Host "      & `"`${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe`" /DMyAppVersion=$AppVersion installer\paratracker.iss"
+    Write-Host ""
+    exit 0
+}
+
+& $iscc "/DMyAppVersion=$AppVersion" "$ProjectDir\installer\paratracker.iss"
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "ERROR: Inno Setup compilation failed (exit code $LASTEXITCODE)."
+    exit $LASTEXITCODE
+}
+
+Write-Host ""
+Write-Host "Installer build complete!"
+Write-Host "  Installer  : dist\ParaTracker-$AppVersion-Setup.exe"
 Write-Host ""
