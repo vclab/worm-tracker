@@ -1,0 +1,118 @@
+name: Release
+
+# Builds the macOS DMG (arm64) and the Windows installer on GitHub-hosted
+# runners. Fires on any tag pushed as v* (e.g. v1.4.2), and can also be run
+# manually from the Actions tab (workflow_dispatch) to test a build without
+# cutting a release.
+#
+# On tag push, the publish job attaches the built artifacts to a GitHub
+# Release page. On manual dispatch, the artifacts are attached to the
+# workflow run instead (download them from the run page).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+env:
+  # Keep in sync with WEIGHTS_SHA256 in the Makefile / dev.ps1 and
+  # DEFAULT_WEIGHTS_SHA256 in app/main.py.
+  WEIGHTS_SHA256: f7712cb708c94a788f36fe8cbf9c1f479e399286ab3c9afbbb318e4c6d9f80fe
+
+jobs:
+  windows:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      # Cache YOLO weights across runs. Key includes the SHA256 so a model
+      # change (which updates the SHA in Makefile/dev.ps1) auto-invalidates.
+      - name: Cache YOLO weights
+        id: cache-weights
+        uses: actions/cache@v4
+        with:
+          path: weights
+          key: weights-${{ env.WEIGHTS_SHA256 }}
+
+      # dev.ps1 weights sets up the venv, installs requirements, then
+      # downloads the model via gdown. If the cache hit, the file already
+      # exists and dev.ps1 skips the download.
+      - name: Setup venv and download weights
+        run: .\dev.ps1 weights
+
+      - name: Build installer
+        run: .\build_windows.ps1
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ParaTracker-Windows-Installer
+          path: dist/ParaTracker-*-Setup.exe
+          if-no-files-found: error
+
+  macos:
+    name: Build macOS DMG
+    runs-on: macos-14   # arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Cache YOLO weights
+        id: cache-weights
+        uses: actions/cache@v4
+        with:
+          path: weights
+          key: weights-${{ env.WEIGHTS_SHA256 }}
+
+      # make release runs: clean -> venv -> weights -> build.sh (PyInstaller
+      # + ad-hoc sign) -> make dmg. Total ~5-8 min on macos-14.
+      - name: Build DMG
+        run: make release
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: ParaTracker-macOS-DMG
+          path: dist/ParaTracker-*-arm64.dmg
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub Release
+    needs: [windows, macos]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # required by action-gh-release to create the release
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/ParaTracker-Windows-Installer/*.exe
+            artifacts/ParaTracker-macOS-DMG/*.dmg
+          generate_release_notes: true
+          draft: false
+          prerelease: false
