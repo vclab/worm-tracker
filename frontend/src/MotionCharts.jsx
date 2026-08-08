@@ -16,7 +16,7 @@ const TOOLTIPS = {
   head: "Average displacement of the head keypoint (wider end) per frame transition (px/frame). Mean of all frame-to-frame distances for the head point only.",
   mid: "Average displacement of the 3 middle keypoints per frame transition (px/frame). Averages across 3 adjacent skeleton points around the center to reduce noise from body deformation.",
   tail: "Average displacement of the tail keypoint (narrower end) per frame transition (px/frame). Same calculation as head but for the opposite end.",
-  mean: "Average and standard deviation across all tracked worms. Shows how similar or different the worms' activity levels are — not an average across frames.",
+  mean: "Average and standard deviation across all tracked worms. Shows how similar or different the worms' activity levels are; not an average across frames.",
   motionOverTime:
     "Frame-by-frame displacement of head, mid-body, and tail keypoints. Each point is the Euclidean distance that keypoint moved in one frame transition (or a windowed average if the video has many frames). Spikes indicate bursts of movement.",
   motionTrend:
@@ -198,7 +198,7 @@ function MotionCharts({ data }) {
       {timeSeriesData.length > 0 && (
         <div className="timeline-container">
           <h4 className="timeline-title">
-            Worm {activeWorm} — Motion Over Time<InfoTooltip text={TOOLTIPS.motionOverTime} placement="above" />
+            Worm {activeWorm}: Motion Over Time<InfoTooltip text={TOOLTIPS.motionOverTime} placement="above" />
           </h4>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={timeSeriesData} margin={{ top: 10, right: 30, left: 10, bottom: 25 }}>
@@ -266,7 +266,7 @@ function MotionCharts({ data }) {
       {rollingAvgData.length > 0 && (
         <div className="timeline-container">
           <h4 className="timeline-title">
-            Worm {activeWorm} — Motion Trend (Rolling Average)<InfoTooltip text={TOOLTIPS.motionTrend} placement="above" />
+            Worm {activeWorm}: Motion Trend (Rolling Average)<InfoTooltip text={TOOLTIPS.motionTrend} placement="above" />
           </h4>
           <ResponsiveContainer width="100%" height={200}>
             <LineChart data={rollingAvgData} margin={{ top: 10, right: 30, left: 10, bottom: 25 }}>

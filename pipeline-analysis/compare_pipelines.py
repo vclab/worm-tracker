@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-compare_pipelines.py — Proxy tracking-quality comparison: Classical vs YOLO pipeline.
+compare_pipelines.py: Proxy tracking-quality comparison of Classical vs YOLO pipeline.
 
 Runs both pipelines on the same video(s) WITHOUT writing any tracking output files.
 Computes proxy metrics from each pipeline's own output (no ground-truth labels),
@@ -9,7 +9,7 @@ then writes:
   - JSON: same scalars + per-frame detection counts (for time-series charting).
   - Console: a readable side-by-side summary table.
 
-ALL metrics are PROXY metrics — derived from the pipeline's own behaviour, not from
+ALL metrics are PROXY metrics; derived from the pipeline's own behaviour, not from
 ground truth.  They measure self-consistency and stability.  Interpret comparatively.
 
 Usage (run from project root so that `app/` is importable):
@@ -33,7 +33,7 @@ import cv2
 import numpy as np
 from scipy.optimize import linear_sum_assignment
 
-# ── Allow running from any directory — add the project root (one level up) ────
+# ── Allow running from any directory; add the project root (one level up) ────
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.worm_tracker import (
@@ -70,8 +70,8 @@ PROXIMITY_GUARD_PX        = 50   # min centroid distance before a brand-new ID i
 # TEMPORAL_THRESHOLD_FR frames of an existing track's death AND within
 # SPATIAL_THRESHOLD_PX pixels of that track's last centroid.
 # Tune these to match your microscope resolution and typical worm speed.
-SPATIAL_THRESHOLD_PX  = 110   # pixels — centroid proximity for death→birth pairing
-TEMPORAL_THRESHOLD_FR = 50   # frames — max gap between death and a nearby rebirth
+SPATIAL_THRESHOLD_PX  = 110   # pixels; centroid proximity for death→birth pairing
+TEMPORAL_THRESHOLD_FR = 50   # frames; max gap between death and a nearby rebirth
 
 # Output defaults
 DEFAULT_OUTPUT_DIR = "pipeline_comparison_results"
@@ -145,8 +145,8 @@ def _run_tracking_loop(
     Returns
     -------
     dict with:
-        per_frame_counts : list[int] — active track count per frame
-        track_events     : dict[int, dict] — per-track lifecycle info
+        per_frame_counts : list[int]; active track count per frame
+        track_events     : dict[int, dict]; per-track lifecycle info
     or None on unrecoverable failure (bad path, corrupt video that yields zero frames).
     """
     cap = cv2.VideoCapture(video_path)
@@ -194,7 +194,7 @@ def _run_tracking_loop(
             try:
                 mask_data = detect_fn(frame)
             except Exception as exc:
-                log.warning("[%s] Detection failed on frame %d: %s — skipping frame.", label, frame_idx, exc)
+                log.warning("[%s] Detection failed on frame %d: %s; skipping frame.", label, frame_idx, exc)
                 per_frame_counts.append(0)
                 frame_idx += 1
                 continue
@@ -307,7 +307,7 @@ def _run_tracking_loop(
         return None
 
     log.info(
-        "[%s] Done — %d frames processed, %d unique IDs created.",
+        "[%s] Done; %d frames processed, %d unique IDs created.",
         label, frame_idx, len(track_events),
     )
     return {"per_frame_counts": per_frame_counts, "track_events": track_events}
@@ -324,19 +324,19 @@ def _count_discontinuities(track_events: dict) -> int:
     DEFINITION
     ----------
     A discontinuity event is counted when ALL THREE conditions hold:
-      (1) A worm track terminates ("death") — its ID stops being seen.
+      (1) A worm track terminates ("death"); its ID stops being seen.
       (2) A NEW worm ID appears ("birth") at most TEMPORAL_THRESHOLD_FR frames later.
       (3) The new ID's first centroid is within SPATIAL_THRESHOLD_PX pixels of the
           dead track's last centroid.
     This pattern suggests the tracker lost a worm and re-detected it as a new ID
-    (fragmentation).  It is a PROXY — a genuine new worm entering the field near a
+    (fragmentation).  It is a PROXY; a genuine new worm entering the field near a
     recently-lost one would also trigger it, so the number over-estimates in crowded
     conditions.
 
     ALGORITHM
     ---------
     Build lists of "death" (last_frame, last_centroid) and "birth" events (for IDs
-    that first appear after frame 0 — frame-0 IDs are founding detections, not
+    that first appear after frame 0; frame-0 IDs are founding detections, not
     re-detections).  For each birth in chronological order, search for an unmatched
     death within the threshold windows.  Greedy one-to-one matching: once a death is
     matched it cannot match another birth.  Count matched pairs.
@@ -357,7 +357,7 @@ def _count_discontinuities(track_events: dict) -> int:
     ]
 
     # Sort by frame number only (int scalar).  Do NOT let the centroid array
-    # participate in the comparison — Python would try to compare numpy arrays
+    # participate in the comparison; Python would try to compare numpy arrays
     # element-wise and raise "ambiguous truth value" when frame numbers tie.
     births = sorted(
         [
@@ -392,11 +392,11 @@ def compute_metrics(raw: dict) -> dict:
 
     Returned keys
     -------------
-    worms_detected_per_frame      : list[int]  — active track count per frame
-    total_unique_ids              : int         — distinct IDs created over the video
-    id_discontinuity_events       : int         — estimated track fragmentations
-    mean_track_length             : float       — avg frames a track persists
-    max_worms_in_any_single_frame : int         — peak concurrent detection count
+    worms_detected_per_frame      : list[int] ; active track count per frame
+    total_unique_ids              : int        ; distinct IDs created over the video
+    id_discontinuity_events       : int        ; estimated track fragmentations
+    mean_track_length             : float      ; avg frames a track persists
+    max_worms_in_any_single_frame : int        ; peak concurrent detection count
     """
     per_frame    = raw["per_frame_counts"]
     track_events = raw["track_events"]
@@ -481,7 +481,7 @@ def run_pipeline_comparison(
         log.error("YOLO pipeline failed for %s: %s", video_path, exc, exc_info=True)
 
     if not results:
-        log.error("Both pipelines failed for %s — no result to record.", video_path)
+        log.error("Both pipelines failed for %s; no result to record.", video_path)
         return None
 
     return {"video": video_path, **results}
@@ -568,7 +568,7 @@ def format_console_table(all_results: list[dict]) -> str:
 
     lines.append(f"\n{sep}")
     lines.append(
-        "NOTE: All metrics are proxy metrics — no ground-truth labels were used.\n"
+        "NOTE: All metrics are proxy metrics; no ground-truth labels were used.\n"
         f"      id_discontinuity_events uses spatial={SPATIAL_THRESHOLD_PX}px / "
         f"temporal={TEMPORAL_THRESHOLD_FR}fr thresholds."
     )
@@ -675,7 +675,7 @@ def main() -> None:
             failed_videos.append(vp)
 
     if not all_results:
-        log.error("No results to write — all videos failed.")
+        log.error("No results to write; all videos failed.")
         sys.exit(1)
 
     run_ts    = datetime.now().strftime("%Y%m%d_%H%M%S")

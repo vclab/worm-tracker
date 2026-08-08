@@ -52,7 +52,7 @@ const SingleVideoChart = forwardRef(function SingleVideoChart({ perWorm, perVide
 
   const [selected, setSelected] = useState(() => filteredVideos[0] ?? "");
 
-  // When pipeline changes, filteredVideos changes — reset selected to first in new list.
+  // When pipeline changes, filteredVideos changes; reset selected to first in new list.
   useEffect(() => {
     if (filteredVideos.length && !filteredVideos.includes(selected)) {
       setSelected(filteredVideos[0]);
@@ -337,7 +337,7 @@ export default function MetricsPage() {
     try {
       const { svgBlob, pngBlob } = await exportChartAssets(cmpChartRef);
 
-      // Group summary CSV — one row per group × pipeline from the comparison result.
+      // Group summary CSV; one row per group × pipeline from the comparison result.
       const summaryRows = [
         toCsvRow(["group", "pipeline", "n",
                   "head_mean", "head_std", "midbody_mean", "midbody_std",
@@ -354,7 +354,7 @@ export default function MetricsPage() {
       }
       const groupSummaryCsv = summaryRows.join("\n");
 
-      // Per-worm CSV — data.per_worm joined to group labels via job_id.
+      // Per-worm CSV; data.per_worm joined to group labels via job_id.
       // Build job_id → group label map from the groups array; a job_id that
       // appears in multiple groups uses the last one (groups should be disjoint).
       const jobToGroup = {};
@@ -398,7 +398,7 @@ export default function MetricsPage() {
     const selectedPipeline = singleChartRef.current?.getSelectedPipeline();
     if (!chartContainer || !selectedFile) return;
 
-    // Resolve job_id from per_video — same join the backend used to build the table.
+    // Resolve job_id from per_video; same join the backend used to build the table.
     const match = data.per_video.find(
       r => r.filename === selectedFile && r.pipeline === selectedPipeline
     );
@@ -455,8 +455,8 @@ export default function MetricsPage() {
           Group your videos by experimental condition to compare worm motion across groups.
           Type a keyword to find matching videos, confirm which ones belong in the group, label it,
           then add more groups and compute. The chart shows each group's average head, midbody, and
-          tail motion. The error bars show how much individual worms varied within the group — short
-          bars mean the worms moved similarly, long bars mean they were spread out — and n is the
+          tail motion. The error bars show how much individual worms varied within the group; short
+          bars mean the worms moved similarly, long bars mean they were spread out; and n is the
           number of worms in each group.
         </p>
 
@@ -485,7 +485,7 @@ export default function MetricsPage() {
             <span style={{ flexShrink: 0 }}>⚠</span>
             <span>
               Matched set spans both pipelines (Classical + YOLO).
-              Stats will be reported per pipeline — they are never blended.
+              Stats will be reported per pipeline; they are never blended.
             </span>
           </div>
         )}

@@ -135,7 +135,7 @@ def get_skeleton_points(mask, num_points):
         return None
 
     # Pick the two endpoints that are farthest apart rather than first/last in
-    # raster order — raster order can select two spatially close points for a
+    # raster order; raster order can select two spatially close points for a
     # coiled or diagonal worm, producing a short or incorrect skeleton path.
     if len(endpoints) == 2:
         start, end = tuple(endpoints[0]), tuple(endpoints[1])
@@ -474,7 +474,7 @@ def export_csv_files(motion_stats, output_dir, base_name):
                 f"{tail[i]:.6f}"    if i < len(tail)    else "",
             ])
 
-        # Aggregate rows — same columns, row_type distinguishes them
+        # Aggregate rows; same columns, row_type distinguishes them
         for metric in ('mean', 'std', 'min', 'max'):
             writer.writerow([
                 f"aggregate_{metric}",
@@ -580,7 +580,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
                             curr_vec = current_keypoints[j][-1] - current_keypoints[j][0]
                             prev_mag = np.linalg.norm(prev_vec)
                             curr_mag = np.linalg.norm(curr_vec)
-                            # Only flip if both vectors have meaningful length — avoids
+                            # Only flip if both vectors have meaningful length; avoids
                             # incorrectly reversing a worm that is nearly stationary or curled
                             if prev_mag > 1e-6 and curr_mag > 1e-6 and np.dot(prev_vec, curr_vec) < 0:
                                 current_keypoints[j] = current_keypoints[j][::-1]
@@ -648,7 +648,7 @@ def run_tracking(video_path, output_dir, keypoints_per_worm, area_threshold, max
     image_files = sorted([f for f in os.listdir(frames_dir) if f.endswith(".png")])
     if not image_files:
         shutil.rmtree(frames_dir, ignore_errors=True)
-        raise RuntimeError("No frames were written — video may be empty or unreadable")
+        raise RuntimeError("No frames were written; video may be empty or unreadable")
 
     first_image = cv2.imread(os.path.join(frames_dir, image_files[0]))
     if first_image is None:

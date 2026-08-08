@@ -40,7 +40,7 @@ export default function HeadTailCorrector({
       })
       .catch((err) => {
         console.error("Failed to load keypoints:", err);
-        setFetchError("Failed to load keypoint data — try reloading the job.");
+        setFetchError("Failed to load keypoint data; try reloading the job.");
       });
   }, [jobId]);
 
@@ -102,7 +102,7 @@ export default function HeadTailCorrector({
 
       if (!video.readyState) { rafRef.current = requestAnimationFrame(draw); return; }
 
-      // object-fit: contain — compute rendered video rect
+      // object-fit: contain; compute rendered video rect
       const scale = Math.min(cw / vw, ch / vh);
       const ox = (cw - vw * scale) / 2;
       const oy = (ch - vh * scale) / 2;

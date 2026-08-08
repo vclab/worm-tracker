@@ -28,7 +28,7 @@ datas = [
     # YOLO weights: resolved at runtime via sys._MEIPASS / "weights"
     # (see DEFAULT_WEIGHTS in app/main.py)
     (str(PROJECT / "weights"), "weights"),
-    # imageio_ffmpeg ships its own static ffmpeg binary — include the whole package
+    # imageio_ffmpeg ships its own static ffmpeg binary; include the whole package
     *([(IMAGEIO_FFMPEG_DIR, "imageio_ffmpeg")] if IMAGEIO_FFMPEG_DIR else []),
 ]
 
@@ -36,7 +36,7 @@ datas = [
 # Hidden imports that PyInstaller's static analysis misses
 # ---------------------------------------------------------------------------
 hidden_imports = [
-    # App modules — listed explicitly so PyInstaller traces all their imports.
+    # App modules; listed explicitly so PyInstaller traces all their imports.
     # dl_worm_tracker is imported lazily inside a function in app.main
     # (guarded by pipeline selection), so it needs an explicit entry to
     # avoid being dropped by static analysis.
@@ -58,7 +58,7 @@ hidden_imports = [
     "uvicorn.protocols.websockets.auto",
     "uvicorn.lifespan",
     "uvicorn.lifespan.on",
-    # FastAPI / starlette — full middleware stack
+    # FastAPI / starlette; full middleware stack
     "fastapi",
     "fastapi.middleware",
     "fastapi.middleware.cors",
@@ -109,11 +109,17 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         "tkinter",
-        "matplotlib",
+        # matplotlib is imported lazily by ultralytics (utils/plotting.py,
+        # utils/metrics.py, utils/checks.py), so it must stay bundled. Do NOT
+        # add it to excludes.
         "IPython",
         "jupyter",
         "notebook",
         "pytest",
+        # Dev-only deps: gdown downloads the YOLO weights (Makefile/dev.ps1);
+        # seaborn is only used by analysis/aggregate_analysis.ipynb.
+        "gdown",
+        "seaborn",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

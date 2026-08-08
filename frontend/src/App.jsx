@@ -36,7 +36,7 @@ function App() {
   const [largeVideoPrompt, setLargeVideoPrompt] = useState(null);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
 
-  // Shared jobs state — read by both the Tracker strip and the History tab
+  // Shared jobs state; read by both the Tracker strip and the History tab
   const [jobs, setJobs] = useState([]);
 
   // Head/tail overlay canvas
@@ -262,7 +262,7 @@ function App() {
     setFileName("");
   };
 
-  // Load a completed job from history — also switches to Tracker tab
+  // Load a completed job from history; also switches to Tracker tab
   const loadFromHistory = (job) => {
     setActiveTab("tracker");
     setOriginalUrl(job.original_video_path ? `${API}${job.original_video_path}` : null);
@@ -517,7 +517,7 @@ function App() {
             <div style={{ display: "flex", flexDirection: "column", justifyContent: "center", minHeight: "calc(100vh - 64px)" }}>
               <div className="card" style={{ position: "relative" }}>
 
-                {/* Gear icon — opens Settings modal */}
+                {/* Gear icon; opens Settings modal */}
                 <button
                   onClick={() => setSettingsModalOpen(true)}
                   title="Settings"
@@ -538,7 +538,7 @@ function App() {
                     fontSize: "0.82rem", color: "#fbbf24", display: "flex", gap: 8, alignItems: "center",
                   }}>
                     <span>⚠</span>
-                    <span>Settings changed — restart the app before submitting new jobs.</span>
+                    <span>Settings changed; restart the app before submitting new jobs.</span>
                   </div>
                 )}
 
@@ -783,7 +783,7 @@ function App() {
                     )}
                     {motionStats && motionStats.num_worms === 0 && (
                       <div style={{ color: "var(--text-secondary)", fontSize: "0.82rem", marginTop: "0.5rem" }}>
-                        No worms were detected in this video — try lowering the area threshold or check that worms are visible in the footage.
+                        No worms were detected in this video; try lowering the area threshold or check that worms are visible in the footage.
                       </div>
                     )}
                     {motionStats && motionStats.num_worms > 0 && (
@@ -796,7 +796,7 @@ function App() {
 
                 <footer className="footer">
                   <span>A collaboration between the <a href="https://www.vclab.ca" target="_blank" rel="noopener noreferrer">Visual Computing Lab</a> and the Forrester Lab, Faculty of Science, Ontario Tech University.</span>
-                  <span>Lead developer: <a href="https://ca.linkedin.com/in/aaveg-shangari" target="_blank" rel="noopener noreferrer">Aaveg Shangari</a> — the first version of ParaTracker was completed during his Honours Thesis in the Visual Computing Lab.</span>
+                  <span>Lead developer: <a href="https://ca.linkedin.com/in/aaveg-shangari" target="_blank" rel="noopener noreferrer">Aaveg Shangari</a>; the first version of ParaTracker was completed during his Honours Thesis in the Visual Computing Lab.</span>
                 </footer>
               </div>
             </div>{/* end centering wrapper */}

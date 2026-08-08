@@ -59,7 +59,7 @@ export async function exportChartAssets(containerRef) {
 
   // Bug 2 fix: Recharts sets style="width:100%;height:100%" on the SVG root.
   // cloneNode copies that verbatim, and the percentage CSS overrides explicit width/height
-  // attributes when the SVG is loaded as a standalone blob — leaving intrinsic size
+  // attributes when the SVG is loaded as a standalone blob; leaving intrinsic size
   // undefined, so rasterization produces a tiny or empty canvas. Strip the percentages
   // and set unambiguous pixel dimensions plus a matching viewBox.
   clone.style.removeProperty("width");

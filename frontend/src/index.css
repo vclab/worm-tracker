@@ -152,7 +152,7 @@ body {
   max-width: none;
 }
 
-/* Job History card — wider to let the table breathe */
+/* Job History card; wider to let the table breathe */
 .card--history {
   max-width: 1100px;
 }

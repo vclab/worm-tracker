@@ -120,7 +120,7 @@ def read_timeseries_csv(path):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Scheme 1 — Summary CSV vs JSON
+# Scheme 1; Summary CSV vs JSON
 # ─────────────────────────────────────────────────────────────────────────────
 
 def validate_summary_vs_json(stats, summary_rows, agg_block):
@@ -185,7 +185,7 @@ def validate_summary_vs_json(stats, summary_rows, agg_block):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Scheme 2 — Timeseries CSV vs JSON
+# Scheme 2; Timeseries CSV vs JSON
 # ─────────────────────────────────────────────────────────────────────────────
 
 def validate_timeseries_vs_json(stats, ts_worms):
@@ -233,7 +233,7 @@ def validate_timeseries_vs_json(stats, ts_worms):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Scheme 3 — Recompute from NPZ and compare to timeseries CSV
+# Scheme 3; Recompute from NPZ and compare to timeseries CSV
 # ─────────────────────────────────────────────────────────────────────────────
 
 def validate_npz_recompute(npz_path, ts_worms, summary_rows):
@@ -245,7 +245,7 @@ def validate_npz_recompute(npz_path, ts_worms, summary_rows):
 
     ok(f"NPZ contains {len(retained_keys)} retained worm(s): {retained_keys}")
     if partial_keys:
-        ok(f"NPZ contains {len(partial_keys)} partial worm(s) — excluded from CSV as expected: {partial_keys}")
+        ok(f"NPZ contains {len(partial_keys)} partial worm(s); excluded from CSV as expected: {partial_keys}")
 
     for wid in retained_keys:
         kp = npz[wid]  # (num_keypoints, num_frames, 2)
@@ -310,7 +310,7 @@ def validate_npz_recompute(npz_path, ts_worms, summary_rows):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Scheme 4 — H/T flip validation
+# Scheme 4; H/T flip validation
 # ─────────────────────────────────────────────────────────────────────────────
 
 def validate_flip(pre_dir, post_ts_worms, post_summary_rows, flipped_worm_id):
@@ -410,7 +410,7 @@ def generate_plots(ts_worms, output_path):
         ax.plot(frames, head, color="#ef4444", linewidth=1.2, label="Head")
         ax.plot(frames, tail, color="#3b82f6", linewidth=1.2, label="Tail")
 
-        ax.set_title(f"Worm {wid} — Motion Over Time", color="#e5e7eb", fontsize=11)
+        ax.set_title(f"Worm {wid}: Motion Over Time", color="#e5e7eb", fontsize=11)
         ax.set_xlabel("Frame", color="#9ca3af"); ax.set_ylabel("px/frame", color="#9ca3af")
         ax.tick_params(colors="#9ca3af")
         for spine in ax.spines.values(): spine.set_edgecolor("#374151")
@@ -480,7 +480,7 @@ def main():
             print("\nERROR: --pre-flip requires --flipped-worm"); sys.exit(1)
         validate_flip(args.pre_flip, ts_worms, summary_rows, args.flipped_worm)
     else:
-        print("\n[Scheme 4] H/T flip validation — skipped (no --pre-flip provided)")
+        print("\n[Scheme 4] H/T flip validation; skipped (no --pre-flip provided)")
         print("           To validate: flip a worm in the UI, export CSV again, then run:")
         print("           python validate_csv.py <post_flip_output_dir> \\")
         print("               --pre-flip <pre_flip_data_dir> --flipped-worm <id>")

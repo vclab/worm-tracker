@@ -1,13 +1,19 @@
 #!/usr/bin/env bash
-# build.sh — Build ParaTracker.app
+# build.sh: Build ParaTracker.app
 # Usage: ./build.sh
+# Env: VENV overrides the virtualenv path (defaults to $HOME/venv/worm-tracker).
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
-echo "==> Activating Python virtual environment"
-source ~/venv/worm-tracker/bin/activate
+: "${VENV:=$HOME/venv/worm-tracker}"
+echo "==> Activating Python virtual environment ($VENV)"
+if [ ! -f "$VENV/bin/activate" ]; then
+    echo "ERROR: virtualenv not found at $VENV. Run 'make venv' first." >&2
+    exit 1
+fi
+source "$VENV/bin/activate"
 
 echo "==> Ensuring build deps are installed"
 pip install pyinstaller imageio-ffmpeg -q

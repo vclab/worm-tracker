@@ -33,7 +33,7 @@ from app.aggregation import build_tables
 # Thresholds for the large-video confirmation prompt shown at upload time.
 # Tune these without touching upload logic.
 _LARGE_VIDEO_FRAMES = 5_000          # frame count that triggers the warning
-_LARGE_VIDEO_BYTES  = 500 * 1024 ** 2  # 500 MB — file-size fallback trigger
+_LARGE_VIDEO_BYTES  = 500 * 1024 ** 2  # 500 MB; file-size fallback trigger
 
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
@@ -121,7 +121,7 @@ else:
 DEFAULT_WEIGHTS = _WEIGHTS_DIR / f"worm_yolov8seg-{DEFAULT_WEIGHTS_SHA256}.pt"
 
 # ---------------------------------------------------------------------------
-# Paths — outputs and DB are user-configurable; uploads live alongside outputs
+# Paths; outputs and DB are user-configurable; uploads live alongside outputs
 # ---------------------------------------------------------------------------
 
 _config = load_config()
@@ -140,7 +140,7 @@ except Exception as _exc:
 _restart_pending = False
 
 # ---------------------------------------------------------------------------
-# FFmpeg — prefer bundled static binary (imageio_ffmpeg), fall back to PATH
+# FFmpeg; prefer bundled static binary (imageio_ffmpeg), fall back to PATH
 # ---------------------------------------------------------------------------
 
 def _resolve_ffmpeg() -> str:
@@ -151,20 +151,20 @@ def _resolve_ffmpeg() -> str:
         if Path(exe).is_file() and os.access(exe, os.X_OK):
             logger.info("Using bundled ffmpeg: %s", exe)
             return exe
-        logger.warning("imageio_ffmpeg returned non-executable path: %s — trying system PATH", exe)
+        logger.warning("imageio_ffmpeg returned non-executable path: %s; trying system PATH", exe)
     except Exception:
         pass
     system_ffmpeg = shutil.which("ffmpeg")
     if system_ffmpeg:
         logger.info("Using system ffmpeg from PATH: %s", system_ffmpeg)
         return system_ffmpeg
-    logger.warning("No ffmpeg executable found — transcoding will fail")
+    logger.warning("No ffmpeg executable found; transcoding will fail")
     return "ffmpeg"
 
 FFMPEG_BIN = _resolve_ffmpeg()
 
 # ---------------------------------------------------------------------------
-# Outputs-directory lock — one process per outputs folder
+# Outputs-directory lock; one process per outputs folder
 # ---------------------------------------------------------------------------
 # We hold an exclusive flock on paratracker.lock for the lifetime of the
 # process.  The kernel releases the lock automatically on process death
@@ -196,21 +196,21 @@ def _acquire_outputs_lock() -> None:
         )
     fh.write(str(os.getpid()))
     fh.flush()
-    _lock_fh = fh   # keep fd open — lock released when process exits
+    _lock_fh = fh   # keep fd open; lock released when process exits
 
 
 # ---------------------------------------------------------------------------
 # Database
 # ---------------------------------------------------------------------------
 
-# One DB per outputs folder — makes each folder self-contained and portable.
+# One DB per outputs folder; makes each folder self-contained and portable.
 DB_PATH = OUTPUTS / "jobs.db"
 
 
 def init_db():
     with sqlite3.connect(DB_PATH, timeout=30) as conn:
         # WAL: readers don't block writers; safe for concurrent web requests.
-        # NORMAL synchronous: skips fsync except at checkpoints — fast for local use.
+        # NORMAL synchronous: skips fsync except at checkpoints; fast for local use.
         # WAL guarantees atomicity even on crash; at worst the last un-checkpointed
         # transaction is lost, which is acceptable for a local research tool.
         conn.execute("PRAGMA journal_mode=WAL")
@@ -251,19 +251,19 @@ def init_db():
                 conn.execute(stmt)
             except sqlite3.OperationalError:
                 pass  # column already exists
-        # Recover jobs stuck in 'processing' from a previous crashed server — they
+        # Recover jobs stuck in 'processing' from a previous crashed server; they
         # will never be re-picked by the worker (which only selects 'pending').
         conn.execute(
             "UPDATE jobs SET status='error', finished_at=?, error_msg=? "
             "WHERE status='processing'",
             (_now_iso(), "Server restarted while job was processing"),
         )
-        # Uploads awaiting large-video confirmation are stale after restart —
+        # Uploads awaiting large-video confirmation are stale after restart ;
         # the temp file is still on disk but the browser dialog is gone.
         conn.execute(
             "UPDATE jobs SET status='cancelled', finished_at=?, error_msg=? "
             "WHERE status='pending_confirm'",
-            (_now_iso(), "Server restarted before upload was confirmed — please re-upload"),
+            (_now_iso(), "Server restarted before upload was confirmed; please re-upload"),
         )
         conn.commit()
 
@@ -299,7 +299,7 @@ def migrate_existing_outputs():
                 continue
             mp4s = [p for p in job_dir.glob("**/*.mp4") if "_tracked" in p.name]
             if not mp4s:
-                # No tracked video — skip incomplete/failed output dirs rather than
+                # No tracked video; skip incomplete/failed output dirs rather than
                 # accidentally picking up a raw or original MP4 as the tracked video.
                 continue
             zips = [z for z in job_dir.glob("**/*.zip") if not z.name.endswith("_data.zip")]
@@ -336,7 +336,7 @@ def _now_iso() -> str:
 
 
 def _now_unix() -> int:
-    """Current UTC time as integer Unix epoch seconds — used for reliable DB ordering."""
+    """Current UTC time as integer Unix epoch seconds; used for reliable DB ordering."""
     return int(datetime.now(tz=timezone.utc).timestamp())
 
 
@@ -370,17 +370,17 @@ def _transcode_to_h264(src: Path, dst: Path, job_id: str = ""):
         )
         src.unlink()
     except FileNotFoundError:
-        logger.error("FFmpeg binary not found (%s)%s — falling back to raw video", FFMPEG_BIN, tag)
+        logger.error("FFmpeg binary not found (%s)%s; falling back to raw video", FFMPEG_BIN, tag)
         if src.exists():
             src.rename(dst)
     except subprocess.TimeoutExpired:
-        logger.error("FFmpeg transcoding timed out%s — falling back to raw video", tag)
+        logger.error("FFmpeg transcoding timed out%s; falling back to raw video", tag)
         if src.exists():
             src.rename(dst)
     except subprocess.CalledProcessError as exc:
         stderr_out = exc.stderr.decode(errors="replace").strip() if exc.stderr else ""
         logger.error(
-            "FFmpeg transcoding failed (rc=%d)%s — falling back to raw video\n%s",
+            "FFmpeg transcoding failed (rc=%d)%s; falling back to raw video\n%s",
             exc.returncode, tag, stderr_out,
         )
         if src.exists():
@@ -411,7 +411,7 @@ def _do_post_processing(job_id: str, job_dir: Path, original_filename: str, save
     _transcode_to_h264(src_mp4, h264_mp4, job_id)
 
     if not h264_mp4.exists():
-        raise RuntimeError("Tracked video was not produced — FFmpeg and fallback both failed")
+        raise RuntimeError("Tracked video was not produced; FFmpeg and fallback both failed")
 
     # Copy original video into output subfolder
     original_ext = Path(original_filename).suffix
@@ -538,102 +538,112 @@ def process_job(job_id: str):
             return
         _last_progress_write = now
         pct = int(current / total * 100) if total > 0 else 0
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE jobs SET progress=?, progress_stage=? WHERE job_id=?",
-                (pct, stage, job_id),
-            )
+        # Swallow DB errors so a transient SQLite lock does not kill the tracker
+        # mid-job. Progress is best-effort; the job still completes.
+        try:
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE jobs SET progress=?, progress_stage=? WHERE job_id=?",
+                    (pct, stage, job_id),
+                )
+        except Exception as exc:
+            logger.debug("progress update failed for job %s: %s", job_id, exc)
 
+    # Wrap tracker + post-processing so done_event.set() only fires after ALL
+    # work is finished. delete_job waits on done_event before rmtree'ing the
+    # output directory; if we set it earlier, delete_job could race with
+    # _do_post_processing writing files.
     try:
-        pipeline = params.get("pipeline", "classical")
-        if pipeline == "dl":
-            from app.dl_worm_tracker import dl_run_tracking
-            model_path = (
-                params.get("model_weights")
-                or load_config().get("model_path", "")
-                or (str(DEFAULT_WEIGHTS) if DEFAULT_WEIGHTS.is_file() else "")
-            )
-            dl_run_tracking(
-                video_path=str(saved_path),
-                output_dir=str(job_dir),
-                model_path=model_path,
-                keypoints_per_worm=params.get("keypoints_per_worm", 15),
-                area_threshold=params.get("area_threshold", 50),
-                max_age=params.get("max_age", 35),
-                show_video=False,
-                output_name=base_name,
-                persistence=params.get("persistence", 50),
-                conf_threshold=params.get("conf_threshold", 0.25),
-                progress_callback=progress_callback,
-                cancel_check=lambda: cancel_event.is_set(),
-            )
-        else:
-            run_tracking(
-                video_path=str(saved_path),
-                output_dir=str(job_dir),
-                keypoints_per_worm=params.get("keypoints_per_worm", 15),
-                area_threshold=params.get("area_threshold", 50),
-                max_age=params.get("max_age", 35),
-                show_video=False,
-                output_name=base_name,
-                persistence=params.get("persistence", 50),
-                progress_callback=progress_callback,
-                cancel_check=lambda: cancel_event.is_set(),
-            )
-    except Exception as e:
-        error_holder[0] = e
-
-    with active_jobs_lock:
-        active_jobs.pop(job_id, None)
-    done_event.set()  # unblock any delete_job waiting for us to finish
-
-    # Cancelled
-    if cancel_event.is_set():
         try:
-            if saved_path.exists():
-                saved_path.unlink()
-        except Exception:
-            pass
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE jobs SET status='cancelled', finished_at=? WHERE job_id=? AND status='processing'",
-                (_now_iso(), job_id),
-            )
-        return
+            pipeline = params.get("pipeline", "classical")
+            if pipeline == "dl":
+                from app.dl_worm_tracker import dl_run_tracking
+                model_path = (
+                    params.get("model_weights")
+                    or load_config().get("model_path", "")
+                    or (str(DEFAULT_WEIGHTS) if DEFAULT_WEIGHTS.is_file() else "")
+                )
+                dl_run_tracking(
+                    video_path=str(saved_path),
+                    output_dir=str(job_dir),
+                    model_path=model_path,
+                    keypoints_per_worm=params.get("keypoints_per_worm", 15),
+                    area_threshold=params.get("area_threshold", 50),
+                    max_age=params.get("max_age", 35),
+                    show_video=False,
+                    output_name=base_name,
+                    persistence=params.get("persistence", 50),
+                    conf_threshold=params.get("conf_threshold", 0.25),
+                    progress_callback=progress_callback,
+                    cancel_check=lambda: cancel_event.is_set(),
+                )
+            else:
+                run_tracking(
+                    video_path=str(saved_path),
+                    output_dir=str(job_dir),
+                    keypoints_per_worm=params.get("keypoints_per_worm", 15),
+                    area_threshold=params.get("area_threshold", 50),
+                    max_age=params.get("max_age", 35),
+                    show_video=False,
+                    output_name=base_name,
+                    persistence=params.get("persistence", 50),
+                    progress_callback=progress_callback,
+                    cancel_check=lambda: cancel_event.is_set(),
+                )
+        except Exception as e:
+            error_holder[0] = e
 
-    # Error from tracker
-    if error_holder[0]:
-        tb = "".join(traceback.format_exception(type(error_holder[0]), error_holder[0], error_holder[0].__traceback__))
-        print(f"[PARATRACKER] Job {job_id} FAILED during tracking:\n{tb}", flush=True)
-        logger.error("Job %s failed during tracking:\n%s", job_id, tb)
-        try:
-            if saved_path.exists():
-                saved_path.unlink()
-        except Exception:
-            pass
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE jobs SET status='error', finished_at=?, error_msg=? WHERE job_id=?",
-                (_now_iso(), str(error_holder[0]), job_id),
-            )
-        return
+        # Cancelled
+        if cancel_event.is_set():
+            try:
+                if saved_path.exists():
+                    saved_path.unlink()
+            except Exception:
+                pass
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE jobs SET status='cancelled', finished_at=? WHERE job_id=? AND status='processing'",
+                    (_now_iso(), job_id),
+                )
+            return
 
-    # Post-processing
-    try:
-        _do_post_processing(job_id, job_dir, original_filename, saved_path)
-    except Exception as e:
-        print(f"[PARATRACKER] Job {job_id} FAILED during post-processing:\n{traceback.format_exc()}", flush=True)
-        logger.error("Job %s failed during post-processing:\n%s", job_id, traceback.format_exc())
+        # Error from tracker
+        if error_holder[0]:
+            tb = "".join(traceback.format_exception(type(error_holder[0]), error_holder[0], error_holder[0].__traceback__))
+            print(f"[PARATRACKER] Job {job_id} FAILED during tracking:\n{tb}", flush=True)
+            logger.error("Job %s failed during tracking:\n%s", job_id, tb)
+            try:
+                if saved_path.exists():
+                    saved_path.unlink()
+            except Exception:
+                pass
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE jobs SET status='error', finished_at=?, error_msg=? WHERE job_id=?",
+                    (_now_iso(), str(error_holder[0]), job_id),
+                )
+            return
+
+        # Post-processing
         try:
-            if saved_path.exists():
-                saved_path.unlink()
-        except Exception:
-            pass
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE jobs SET status='error', finished_at=?, error_msg=? WHERE job_id=?",
-                (_now_iso(), str(e), job_id),
-            )
+            _do_post_processing(job_id, job_dir, original_filename, saved_path)
+        except Exception as e:
+            print(f"[PARATRACKER] Job {job_id} FAILED during post-processing:\n{traceback.format_exc()}", flush=True)
+            logger.error("Job %s failed during post-processing:\n%s", job_id, traceback.format_exc())
+            try:
+                if saved_path.exists():
+                    saved_path.unlink()
+            except Exception:
+                pass
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE jobs SET status='error', finished_at=?, error_msg=? WHERE job_id=?",
+                    (_now_iso(), str(e), job_id),
+                )
+    finally:
+        with active_jobs_lock:
+            active_jobs.pop(job_id, None)
+        done_event.set()  # unblock any delete_job waiting for us to finish
 
 
 def queue_worker():
@@ -688,8 +698,8 @@ def _heartbeat_watchdog() -> None:
                 if processing:
                     continue
             except Exception as e:
-                logger.warning("Watchdog DB check failed: %s — proceeding with shutdown", e)
-            logger.info("No browser heartbeat for %ds — shutting down.", _HEARTBEAT_TIMEOUT)
+                logger.warning("Watchdog DB check failed: %s; proceeding with shutdown", e)
+            logger.info("No browser heartbeat for %ds; shutting down.", _HEARTBEAT_TIMEOUT)
             import signal
             os.kill(os.getpid(), signal.SIGTERM)
             return
@@ -804,7 +814,7 @@ def delete_job(job_id: str):
         except Exception:
             pass
 
-    # Delete DB record first — if file deletion fails, the record is already
+    # Delete DB record first; if file deletion fails, the record is already
     # gone so the UI won't show a broken entry pointing at missing files.
     with get_db() as conn:
         conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
@@ -843,7 +853,7 @@ async def upload_video(
     if _restart_pending:
         raise HTTPException(
             status_code=503,
-            detail="Settings changed — restart the app to apply before submitting new jobs",
+            detail="Settings changed; restart the app to apply before submitting new jobs",
         )
     if not file.filename:
         raise HTTPException(status_code=400, detail="No filename provided")
@@ -902,7 +912,7 @@ async def upload_video(
             saved_path.unlink(missing_ok=True)
             raise HTTPException(
                 status_code=400,
-                detail="Could not read this video file — it may be corrupt or an unsupported format",
+                detail="Could not read this video file; it may be corrupt or an unsupported format",
             )
         _ret, _first_frame = _cap.read()
         if not _ret or _first_frame is None:
@@ -910,7 +920,7 @@ async def upload_video(
             saved_path.unlink(missing_ok=True)
             raise HTTPException(
                 status_code=400,
-                detail="Could not read this video file — it may be corrupt or an unsupported format",
+                detail="Could not read this video file; it may be corrupt or an unsupported format",
             )
         _frame_count = int(_cap.get(cv2.CAP_PROP_FRAME_COUNT))
         _cap.release()
@@ -920,7 +930,7 @@ async def upload_video(
         saved_path.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail=f"Could not read this video file: {exc}")
 
-    # Warn before queuing very large videos — let the user confirm first.
+    # Warn before queuing very large videos; let the user confirm first.
     _file_size = saved_path.stat().st_size
     if _frame_count > _LARGE_VIDEO_FRAMES or _file_size > _LARGE_VIDEO_BYTES:
         _large_video = {
@@ -973,19 +983,21 @@ def download_file(job_id: str, filename: str):
     if not safe_filename or safe_filename != filename:
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    job_dir = OUTPUTS / job_id
-    if not job_dir.exists():
+    with get_db(readonly=True) as conn:
+        row = conn.execute(
+            "SELECT output_subfolder FROM jobs WHERE job_id=?", (job_id,)
+        ).fetchone()
+    if not row or not row["output_subfolder"]:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    matches = list(job_dir.glob(f"**/{safe_filename}"))
-    if not matches:
-        raise HTTPException(status_code=404, detail="File not found")
-
-    matched_path = matches[0].resolve()
+    job_dir = OUTPUTS / job_id
+    matched_path = (job_dir / row["output_subfolder"] / safe_filename).resolve()
     try:
         matched_path.relative_to(job_dir.resolve())
     except ValueError:
         raise HTTPException(status_code=403, detail="Access denied")
+    if not matched_path.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
 
     return FileResponse(matched_path, filename=safe_filename)
 
@@ -1113,7 +1125,7 @@ def get_keypoints(job_id: str):
         raise HTTPException(status_code=404, detail="Keypoints file not found")
 
     with np.load(npz_files[0]) as npz:
-        # Only expose retained worm IDs — partial worms (key prefix "partial_") are not flippable
+        # Only expose retained worm IDs; partial worms (key prefix "partial_") are not flippable
         worm_ids = [k for k in npz.keys() if not k.startswith("partial_")]
         if not worm_ids:
             return {"worm_ids": [], "num_frames": 0, "head_positions": {}, "tail_positions": {}}
@@ -1160,7 +1172,7 @@ def _regen_and_rebuild(subdir: Path, job_id: str, motion_stats: dict | None = No
     try:
         with get_db() as conn:
             if regen_ok:
-                # Refresh download paths — file names are stable but we update anyway
+                # Refresh download paths; file names are stable but we update anyway
                 # to keep the DB in sync if anything changed during regeneration.
                 h264  = next(subdir.glob("*_tracked.mp4"), None)
                 pkg   = next(subdir.glob("*.zip"), None)
@@ -1179,7 +1191,7 @@ def _regen_and_rebuild(subdir: Path, job_id: str, motion_stats: dict | None = No
             else:
                 conn.execute(
                     "UPDATE jobs SET regen_pending=0, error_msg=? WHERE job_id=?",
-                    ("Regeneration failed — see server logs for details", job_id),
+                    ("Regeneration failed; see server logs for details", job_id),
                 )
     except Exception as exc:
         logger.error("Failed to update regen status for %s: %s", job_id, exc)
@@ -1196,7 +1208,7 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=404, detail="Job not found or not completed")
     if row["regen_pending"]:
         raise HTTPException(
-            status_code=409, detail="Regeneration in progress — try again after it completes"
+            status_code=409, detail="Regeneration in progress; try again after it completes"
         )
 
     subdir = OUTPUTS / job_id / row["output_subfolder"]
@@ -1216,7 +1228,7 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
         # Flip keypoint axis 0 (head ↔ tail)
         data[worm_id] = data[worm_id][::-1, :, :]
 
-        # Save atomically — validate new file before overwriting original
+        # Save atomically; validate new file before overwriting original
         tmp_npz = npz_path.with_suffix(".tmp.npz")
         np.savez_compressed(tmp_npz, **data)
         try:
@@ -1231,7 +1243,7 @@ def flip_worm(job_id: str, worm_id: str, background_tasks: BackgroundTasks):
         # Recompute motion stats inside the lock using the confirmed-written data,
         # so a concurrent flip call cannot race against stale in-memory arrays.
         # NPZ arrays: (num_keypoints, num_frames, 2); compute_motion_stats expects {wid: [[y,x], ...] per keypoint}
-        # Exclude partial worm keys (prefix "partial_") — they are not included in motion analysis.
+        # Exclude partial worm keys (prefix "partial_"); they are not included in motion analysis.
         tracks_for_stats = {
             wid: [arr[i].tolist() for i in range(arr.shape[0])]
             for wid, arr in data.items()
@@ -1272,7 +1284,7 @@ def rerun_job(job_id: str, body: _RerunIn):
     if _restart_pending:
         raise HTTPException(
             status_code=503,
-            detail="Settings changed — restart the app to apply before submitting new jobs",
+            detail="Settings changed; restart the app to apply before submitting new jobs",
         )
     # Validate parameters
     if not (1 <= body.keypoints_per_worm <= 200):
@@ -1291,7 +1303,7 @@ def rerun_job(job_id: str, body: _RerunIn):
     if not row:
         raise HTTPException(status_code=404, detail="Job not found")
     if row["status"] != "done":
-        raise HTTPException(status_code=400, detail=f"Cannot re-run a job with status '{row['status']}' — only 'done' jobs can be re-run")
+        raise HTTPException(status_code=400, detail=f"Cannot re-run a job with status '{row['status']}'; only 'done' jobs can be re-run")
     if not row["output_subfolder"]:
         raise HTTPException(status_code=404, detail="Job output not found")
 
@@ -1304,7 +1316,7 @@ def rerun_job(job_id: str, body: _RerunIn):
     if row["original_filename"]:
         original_filename = row["original_filename"]
     else:
-        # Migrated job — original_filename was never stored. Recover it by stripping
+        # Migrated job; original_filename was never stored. Recover it by stripping
         # the timestamp prefix and "_original" suffix added when the file was stored.
         # Stored format: {YYYYMMDD_HHMMSS_ffffff}_{original_stem}_original{ext}
         stem = original_path.stem   # e.g. "20260406_161355_671420_foo_original"
@@ -1403,7 +1415,7 @@ def cancel_job(job_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Frontend static files — served when the built dist/ folder is present.
+# Frontend static files; served when the built dist/ folder is present.
 # In dev mode the Vite dev server handles the frontend separately.
 # In packaged/production mode FastAPI serves everything from one process.
 # Must be mounted LAST so API routes take priority.

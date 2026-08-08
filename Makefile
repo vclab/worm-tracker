@@ -8,7 +8,7 @@ PIP_STAMP := $(VENV)/.requirements-stamp
 # Update CFBundleShortVersionString in worm_tracker.spec to bump.
 VERSION := $(shell grep 'CFBundleShortVersionString' worm_tracker.spec | head -1 | sed 's/.*"\([0-9.]*\)".*/\1/')
 
-# YOLO weights — content-hashed filename so the SHA256 in the path is the
+# YOLO weights: content-hashed filename so the SHA256 in the path is the
 # integrity check. To swap models, change both WEIGHTS_SHA256 and
 # WEIGHTS_GDRIVE_ID here, and keep DEFAULT_WEIGHTS_SHA256 in app/main.py in sync.
 WEIGHTS_DIR := weights
@@ -17,7 +17,7 @@ WEIGHTS_FILE := $(WEIGHTS_DIR)/worm_yolov8seg-$(WEIGHTS_SHA256).pt
 WEIGHTS_GDRIVE_ID := 1s9IiJdX9vUkwJ9MOFV1rZDEWsKyk_ofk
 
 dist: clean venv weights
-	./build.sh
+	VENV="$(VENV)" ./build.sh
 
 build: check-npm frontend/node_modules/.install-stamp
 
@@ -92,7 +92,7 @@ clean-python-env:
 		echo "Removing Python virtual environment at $(VENV)..."; \
 		rm -rf "$(VENV)"; \
 	else \
-		echo "No virtual environment at $(VENV) — nothing to remove."; \
+		echo "No virtual environment at $(VENV); nothing to remove."; \
 	fi
 
 clean-frontend:

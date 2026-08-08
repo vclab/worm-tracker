@@ -162,7 +162,7 @@ def main() -> None:
     # On POSIX we pass the already-bound socket fd directly so uvicorn inherits
     # it without a re-bind race.  On Windows, fd= is not supported (no fd
     # inheritance for sockets), so we close our socket first and pass host/port
-    # instead — there is a small race window but it's acceptable on Windows.
+    # instead; there is a small race window but it's acceptable on Windows.
     if sys.platform == "win32":
         sock.close()
         uvicorn.run(
@@ -180,7 +180,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    # freeze_support() must be called before main() — it intercepts spawned
+    # freeze_support() must be called before main(); it intercepts spawned
     # subprocesses on macOS (spawn start method) and exits them cleanly
     # instead of letting them re-run the full launcher.
     multiprocessing.freeze_support()

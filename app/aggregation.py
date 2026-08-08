@@ -3,9 +3,9 @@
 Reads jobs.db (read-only), loads each job's *_summary.csv, filters to
 row_type='worm' rows, and builds two tables:
 
-  per_worm  — one row per worm: job_id, filename, pipeline, worm_id,
+  per_worm ; one row per worm: job_id, filename, pipeline, worm_id,
               head, midbody, tail, overall
-  per_video — one row per (filename, pipeline) pair: filename, pipeline,
+  per_video; one row per (filename, pipeline) pair: filename, pipeline,
               job_id, worm_count, head, midbody, tail, overall (averages)
 
 Deduplication: most-recent job per (original_filename, pipeline) pair,
@@ -41,7 +41,7 @@ def build_tables() -> tuple[list[dict], list[dict]]:
     outputs, db_path = _outputs_and_db()
 
     if not db_path.exists():
-        logger.warning("jobs.db not found at %s — returning empty tables", db_path)
+        logger.warning("jobs.db not found at %s; returning empty tables", db_path)
         return [], []
 
     con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -78,20 +78,20 @@ def build_tables() -> tuple[list[dict], list[dict]]:
         subfolder = j["output_subfolder"]
 
         if not subfolder:
-            logger.warning("Aggregate: job %s (%s) has no output_subfolder — skipped", job_id[:8], filename)
+            logger.warning("Aggregate: job %s (%s) has no output_subfolder; skipped", job_id[:8], filename)
             continue
 
         subdir = outputs / job_id / subfolder
         csvs = list(subdir.glob("*_summary.csv"))
         if not csvs:
-            logger.warning("Aggregate: no *_summary.csv in %s — skipped", subdir)
+            logger.warning("Aggregate: no *_summary.csv in %s; skipped", subdir)
             continue
 
         try:
             df_raw = pd.read_csv(csvs[0])
             worm_rows = df_raw[df_raw["row_type"] == "worm"]
             if worm_rows.empty:
-                logger.warning("Aggregate: job %s has no row_type='worm' rows — skipped", job_id[:8])
+                logger.warning("Aggregate: job %s has no row_type='worm' rows; skipped", job_id[:8])
                 continue
             for _, row in worm_rows.iterrows():
                 records.append({
@@ -105,7 +105,7 @@ def build_tables() -> tuple[list[dict], list[dict]]:
                     "overall" : float(row["overall_motion"]),
                 })
         except Exception as exc:
-            logger.warning("Aggregate: could not read CSV for job %s: %s — skipped", job_id[:8], exc)
+            logger.warning("Aggregate: could not read CSV for job %s: %s; skipped", job_id[:8], exc)
 
     if not records:
         return [], []
@@ -137,7 +137,7 @@ if __name__ == "__main__":
 
     pw, pv = build_tables()
     if not pw:
-        print("No data found — make sure at least one job is completed.", file=sys.stderr)
+        print("No data found; make sure at least one job is completed.", file=sys.stderr)
         sys.exit(1)
 
     pw_df = pd.DataFrame(pw)

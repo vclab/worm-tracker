@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-chart_comparison.py — Publication-quality PNG charts from compare_pipelines.py output.
+chart_comparison.py: Publication-quality PNG charts from compare_pipelines.py output.
 
 Reads the most recent comparison_metrics_*.json in the results directory and
 generates three chart files in the output directory.
@@ -151,7 +151,7 @@ def chart_detection_over_time(result: dict, output_dir: Path) -> None:
         )
 
     ax.set_title(
-        f"Worm Detections per Frame — {vname}",
+        f"Worm Detections per Frame: {vname}",
         fontsize=TITLE_SIZE, fontweight="bold", pad=10,
     )
     ax.set_xlabel("Frame", fontsize=LABEL_SIZE)
@@ -186,7 +186,7 @@ def chart_summary_comparison(all_results: list[dict], output_dir: Path) -> None:
     """
     fig, axes = plt.subplots(1, len(_SUMMARY_SPECS), figsize=(12, 5))
     fig.suptitle(
-        "Pipeline Comparison — Scalar Metrics (mean across videos)",
+        "Pipeline Comparison: Scalar Metrics (mean across videos)",
         fontsize=TITLE_SIZE, fontweight="bold", y=1.01,
     )
 
@@ -322,7 +322,7 @@ def chart_per_video_consistency(all_results: list[dict], output_dir: Path) -> No
     ax.set_xticklabels(wrapped, fontsize=LABEL_SIZE, ha="center")
     ax.set_ylabel("Max worms in any single frame", fontsize=LABEL_SIZE)
     ax.set_title(
-        "Peak Detection Count per Video — Classical vs YOLO",
+        "Peak Detection Count per Video: Classical vs YOLO",
         fontsize=TITLE_SIZE, fontweight="bold", pad=12,
     )
 

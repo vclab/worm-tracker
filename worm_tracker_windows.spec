@@ -6,9 +6,15 @@ Build with:
     pyinstaller worm_tracker_windows.spec
 """
 
+import re
 import sys
 import importlib.util
 from pathlib import Path
+
+from PyInstaller.utils.win32.versioninfo import (
+    VSVersionInfo, FixedFileInfo, StringFileInfo,
+    StringTable, StringStruct, VarFileInfo, VarStruct,
+)
 
 block_cipher = None
 PROJECT = Path(SPECPATH)
@@ -21,6 +27,41 @@ IMAGEIO_FFMPEG_DIR = str(Path(_spec.origin).parent) if _spec else None
 _ICON_PATH = PROJECT / "paratracker.ico"
 ICON = str(_ICON_PATH) if _ICON_PATH.is_file() else None
 
+# Read the version from the macOS spec (single source of truth) so the
+# Windows exe's VERSIONINFO stays in sync with CFBundleShortVersionString.
+_MAC_SPEC_TEXT = (PROJECT / "worm_tracker.spec").read_text(encoding="utf-8")
+_VERSION_MATCH = re.search(r'CFBundleShortVersionString[^"]*"([\d.]+)"', _MAC_SPEC_TEXT)
+VERSION = _VERSION_MATCH.group(1) if _VERSION_MATCH else "0.0.0"
+_parts = [int(x) for x in VERSION.split(".")]
+_VERSION_TUPLE = tuple(_parts + [0] * (4 - len(_parts)))
+
+VERSION_INFO = VSVersionInfo(
+    ffi=FixedFileInfo(
+        filevers=_VERSION_TUPLE,
+        prodvers=_VERSION_TUPLE,
+        mask=0x3F,
+        flags=0x0,
+        OS=0x40004,
+        fileType=0x1,
+        subtype=0x0,
+        date=(0, 0),
+    ),
+    kids=[
+        StringFileInfo([
+            StringTable('040904B0', [
+                StringStruct('CompanyName', 'VCLab, Ontario Tech University'),
+                StringStruct('FileDescription', 'ParaTracker'),
+                StringStruct('FileVersion', VERSION),
+                StringStruct('InternalName', 'ParaTracker'),
+                StringStruct('OriginalFilename', 'ParaTracker.exe'),
+                StringStruct('ProductName', 'ParaTracker'),
+                StringStruct('ProductVersion', VERSION),
+            ]),
+        ]),
+        VarFileInfo([VarStruct('Translation', [0x409, 0x4B0])]),
+    ],
+)
+
 # ---------------------------------------------------------------------------
 # Data files to bundle
 # ---------------------------------------------------------------------------
@@ -29,10 +70,10 @@ datas = [
     (str(PROJECT / "frontend" / "dist"), "frontend_dist"),
     # App Python package (worm_tracker.py, etc.)
     (str(PROJECT / "app"), "app"),
-    # YOLO weights — resolved at runtime via sys._MEIPASS / "weights"
+    # YOLO weights; resolved at runtime via sys._MEIPASS / "weights"
     # (see DEFAULT_WEIGHTS in app/main.py)
     (str(PROJECT / "weights"), "weights"),
-    # imageio_ffmpeg ships its own static ffmpeg binary — include the whole package
+    # imageio_ffmpeg ships its own static ffmpeg binary; include the whole package
     *([(IMAGEIO_FFMPEG_DIR, "imageio_ffmpeg")] if IMAGEIO_FFMPEG_DIR else []),
 ]
 
@@ -40,7 +81,7 @@ datas = [
 # Hidden imports that PyInstaller's static analysis misses
 # ---------------------------------------------------------------------------
 hidden_imports = [
-    # App modules — listed explicitly so PyInstaller traces all their imports.
+    # App modules; listed explicitly so PyInstaller traces all their imports.
     # dl_worm_tracker is imported lazily inside a function in app.main
     # (guarded by pipeline selection), so it needs an explicit entry to
     # avoid being dropped by static analysis.
@@ -62,7 +103,7 @@ hidden_imports = [
     "uvicorn.protocols.websockets.auto",
     "uvicorn.lifespan",
     "uvicorn.lifespan.on",
-    # FastAPI / starlette — full middleware stack
+    # FastAPI / starlette; full middleware stack
     "fastapi",
     "fastapi.middleware",
     "fastapi.middleware.cors",
@@ -113,11 +154,17 @@ a = Analysis(
     runtime_hooks=[],
     excludes=[
         "tkinter",
-        "matplotlib",
+        # matplotlib is imported lazily by ultralytics (utils/plotting.py,
+        # utils/metrics.py, utils/checks.py), so it must stay bundled. Do NOT
+        # add it to excludes.
         "IPython",
         "jupyter",
         "notebook",
         "pytest",
+        # Dev-only deps: gdown downloads the YOLO weights (Makefile/dev.ps1);
+        # seaborn is only used by analysis/aggregate_analysis.ipynb.
+        "gdown",
+        "seaborn",
     ],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -146,6 +193,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=ICON,
+    version=VERSION_INFO,
 )
 
 coll = COLLECT(

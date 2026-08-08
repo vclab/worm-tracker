@@ -121,7 +121,7 @@ Partial worms (touching frame edges) are tracked but excluded from final output.
 
 ## Development
 
-Both platforms need two user-installed prerequisites: **Python 3.11** and **Node.js 18+**. Use Python **3.11 specifically** — `requirements.txt` pins `numpy<2` (NumPy 2.x breaks the scikit-image/opencv stack), and NumPy 1.x has no wheels for Python 3.13+, so `pip install -r requirements.txt` fails on newer Pythons.
+Both platforms need two user-installed prerequisites: **Python 3.11** and **Node.js 18+**. Use Python **3.11 specifically**; `requirements.txt` pins `numpy<2` (NumPy 2.x breaks the scikit-image/opencv stack), and NumPy 1.x has no wheels for Python 3.13+, so `pip install -r requirements.txt` fails on newer Pythons.
 
 **FFmpeg is NOT a user prerequisite.** `requirements.txt` includes `imageio-ffmpeg`, which bundles a static FFmpeg binary; `app/main.py:_resolve_ffmpeg()` uses `imageio_ffmpeg.get_ffmpeg_exe()` and only falls back to a system FFmpeg on `PATH`. Neither the Makefile nor `dev.ps1` checks for system FFmpeg.
 
@@ -219,23 +219,23 @@ Version is read from `CFBundleShortVersionString` in `worm_tracker.spec`; bump t
 
 **YOLO weights are bundled** (since v1.4.1). `worm_tracker.spec` includes `(str(PROJECT / "weights"), "weights")` in `datas`, and `app/main.py` branches `DEFAULT_WEIGHTS` on `sys.frozen`: `sys._MEIPASS/weights/` when packaged, `APP_DIR.parent/weights/` when running from source. Both classical and YOLO pipelines work out of the box in the DMG. A user can still override the default by setting `model_path` in Settings (⚙) to point at a different `.pt` file.
 
-### Windows (implemented — onedir exe + Inno Setup installer)
+### Windows (implemented; onedir exe + Inno Setup installer)
 
-`build_windows.ps1` produces `dist\ParaTracker\ParaTracker.exe` (PyInstaller **onedir** — a folder containing the exe plus `_internal\`) and, when Inno Setup is installed, wraps it into `dist\ParaTracker-<version>-Setup.exe`. Distribute either the installer (recommended) or a zip of the `dist\ParaTracker\` folder; in both cases the target machine needs no Python, Node, or FFmpeg (FFmpeg is bundled).
+`build_windows.ps1` produces `dist\ParaTracker\ParaTracker.exe` (PyInstaller **onedir**; a folder containing the exe plus `_internal\`) and, when Inno Setup is installed, wraps it into `dist\ParaTracker-<version>-Setup.exe`. Distribute either the installer (recommended) or a zip of the `dist\ParaTracker\` folder; in both cases the target machine needs no Python, Node, or FFmpeg (FFmpeg is bundled).
 
 The build pipeline (`build_windows.ps1`):
 
 1. Activates the project venv (`.\venv\`, created by `.\dev.ps1 venv`) and ensures `pyinstaller` + `imageio-ffmpeg` are installed.
-2. Requires the YOLO weights to be present (`.\dev.ps1 weights` first) — the exe fails to build without them.
+2. Requires the YOLO weights to be present (`.\dev.ps1 weights` first); the exe fails to build without them.
 3. Builds the frontend with `VITE_API_URL=""` (same-origin). It writes `frontend/.env.production.local` with an empty `VITE_API_URL` because Windows drops env vars assigned `""` (`SetEnvironmentVariable` treats `""` as unset), so `$env:VITE_API_URL = ""` never reaches Vite.
 4. Runs `pyinstaller worm_tracker_windows.spec --clean --noconfirm`.
 5. Builds the installer: reads the version from `worm_tracker.spec` (`CFBundleShortVersionString`), locates `ISCC.exe` (PATH, then the standard `Inno Setup 6` install dirs), and runs it against `installer\paratracker.iss` passing `/DMyAppVersion=<version>`. If `ISCC.exe` isn't found, this step is **skipped with a warning** (the onedir build still succeeds) and prints `winget install JRSoftware.InnoSetup`. Pass `-SkipInstaller` to skip it deliberately.
 
-**Uses a dedicated spec, `worm_tracker_windows.spec`** — NOT the cross-platform `worm_tracker.spec`, which ends with a macOS-only `BUNDLE` step and references the `.icns` icon. The Windows spec is a `COLLECT`-only onedir build. Its `datas`, `hiddenimports`, and `excludes` are kept in sync with `worm_tracker.spec`; if you add a hidden import or bundled data file to one, mirror it in the other. It explicitly lists every `app.*` module (including the lazily-imported `app.dl_worm_tracker`) and `pandas`, so both pipelines and the aggregate/compare pages work in the packaged exe.
+**Uses a dedicated spec, `worm_tracker_windows.spec`**; NOT the cross-platform `worm_tracker.spec`, which ends with a macOS-only `BUNDLE` step and references the `.icns` icon. The Windows spec is a `COLLECT`-only onedir build. Its `datas`, `hiddenimports`, and `excludes` are kept in sync with `worm_tracker.spec`; if you add a hidden import or bundled data file to one, mirror it in the other. It explicitly lists every `app.*` module (including the lazily-imported `app.dl_worm_tracker`) and `pandas`, so both pipelines and the aggregate/compare pages work in the packaged exe.
 
-**No console window (`console=False`).** There is no terminal to Ctrl-C and no window to close, so the browser-heartbeat watchdog (`app/main.py`, active when `sys.frozen`) is the only clean shutdown path: when the browser tab is closed and no job is processing, no `POST /api/heartbeat` arrives for 20 s and the process exits via `os.kill(os.getpid(), signal.SIGTERM)` (maps to `TerminateProcess` on Windows — a hard kill, which reliably terminates). The hard kill skips `atexit`, so `paratracker.port` is left behind, but the launcher's TCP probe treats a stale port file as dead and removes it on the next launch, so it is self-healing.
+**No console window (`console=False`).** There is no terminal to Ctrl-C and no window to close, so the browser-heartbeat watchdog (`app/main.py`, active when `sys.frozen`) is the only clean shutdown path: when the browser tab is closed and no job is processing, no `POST /api/heartbeat` arrives for 20 s and the process exits via `os.kill(os.getpid(), signal.SIGTERM)` (maps to `TerminateProcess` on Windows; a hard kill, which reliably terminates). The hard kill skips `atexit`, so `paratracker.port` is left behind, but the launcher's TCP probe treats a stale port file as dead and removes it on the next launch, so it is self-healing.
 
-**`launcher.py:_silence_stdio()`** is required for the windowless build: with `console=False`, `sys.stdout`/`sys.stderr` are `None`, and any write to them — `tqdm`, the `print()` calls in `app/main.py`, uvicorn's log formatter calling `.isatty()` — would raise `AttributeError`. `main()` calls it first thing when `sys.frozen`, redirecting both to `os.devnull`.
+**`launcher.py:_silence_stdio()`** is required for the windowless build: with `console=False`, `sys.stdout`/`sys.stderr` are `None`, and any write to them; `tqdm`, the `print()` calls in `app/main.py`, uvicorn's log formatter calling `.isatty()`; would raise `AttributeError`. `main()` calls it first thing when `sys.frozen`, redirecting both to `os.devnull`.
 
 **Icon.** Both the spec and `installer\paratracker.iss` use `paratracker.ico` if it exists at the repo root, otherwise they fall back to PyInstaller's / Inno Setup's default icon. No `.ico` is committed yet (only `paratracker.icns` for macOS); add one to brand the exe, taskbar, installer, and shortcuts.
 
@@ -243,8 +243,8 @@ The build pipeline (`build_windows.ps1`):
 
 - Installs into `{autopf}\ParaTracker` (Program Files; `PrivilegesRequired=admin`, so it prompts for elevation), x64 only.
 - Adds a Start Menu shortcut, an optional (unchecked-by-default) desktop icon, an uninstaller, and a "Programs & Features" entry. Offers a "launch now" checkbox on the final page.
-- `AppId` is a fixed GUID (`{{A3F5C2E1-...}`) — **never change it**, or upgrades install side-by-side instead of replacing the prior version. `AppVersion`/`VersionInfoVersion` come from the `/DMyAppVersion` define that `build_windows.ps1` passes; the `#ifndef` fallback (`0.0.0`) only applies to a bare hand-invocation.
-- **User data is untouched on uninstall by design** — the installer only writes under `{app}`, so the outputs folder (`Documents\ParaTracker\`) and config (`%APPDATA%\ParaTracker\config.json`) survive uninstall and upgrades. A full uninstall means removing the app, then deleting those two folders by hand.
+- `AppId` is a fixed GUID (`{{A3F5C2E1-...}`); **never change it**, or upgrades install side-by-side instead of replacing the prior version. `AppVersion`/`VersionInfoVersion` come from the `/DMyAppVersion` define that `build_windows.ps1` passes; the `#ifndef` fallback (`0.0.0`) only applies to a bare hand-invocation.
+- **User data is untouched on uninstall by design**; the installer only writes under `{app}`, so the outputs folder (`Documents\ParaTracker\`) and config (`%APPDATA%\ParaTracker\config.json`) survive uninstall and upgrades. A full uninstall means removing the app, then deleting those two folders by hand.
 - Build by hand (once `dist\ParaTracker\` exists): `& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DMyAppVersion=<version> installer\paratracker.iss`.
 
 Not yet done (roadmap):
@@ -299,7 +299,7 @@ No packaged artifact. To run the backend as a service:
 | `make clean-build` | Remove `build/` and `dist/`. |
 | `make clean-weights` | Remove `weights/`. Not part of `clean`. |
 
-Windows equivalent: `dev.ps1` supports `run`, `build`, `venv`, `weights`, and the same `clean-*` targets. Windows distribution is a separate script — run `.\build_windows.ps1` to produce the onedir `dist\ParaTracker\ParaTracker.exe` (see `## Distribution → Windows`). `dev.ps1` itself has no `dist`/`release` target.
+Windows equivalent: `dev.ps1` supports `run`, `build`, `venv`, `weights`, and the same `clean-*` targets. Windows distribution is a separate script; run `.\build_windows.ps1` to produce the onedir `dist\ParaTracker\ParaTracker.exe` (see `## Distribution → Windows`). `dev.ps1` itself has no `dist`/`release` target.
 
 ## File Locations
 

@@ -66,7 +66,7 @@ def extract_yolo_masks(results, frame_shape, area_threshold, edge_margin=5):
         resized = cv2.resize(raw_mask, (width, height), interpolation=cv2.INTER_LINEAR)
         binary = (resized > 0.5).astype(np.uint8) * 255
 
-        # Morphological closing — same 3x3 kernel as classical pipeline
+        # Morphological closing; same 3x3 kernel as classical pipeline
         binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
 
         if np.count_nonzero(binary) < area_threshold:
@@ -203,7 +203,7 @@ def dl_run_tracking(
 
             # If the model produces two overlapping detections for one worm, the 50 px
             # centroid-proximity guard below suppresses the second as a duplicate.
-            # Do not add NMS here — Hungarian matching + proximity handles it.
+            # Do not add NMS here; Hungarian matching + proximity handles it.
             for j in range(len(current_keypoints)):
                 if current_ids[j] == -1:
                     curr_centroid = np.mean(current_keypoints[j], axis=0)
@@ -270,7 +270,7 @@ def dl_run_tracking(
     image_files = sorted([f for f in os.listdir(frames_dir) if f.endswith(".png")])
     if not image_files:
         shutil.rmtree(frames_dir, ignore_errors=True)
-        raise RuntimeError("No frames were written — video may be empty or unreadable")
+        raise RuntimeError("No frames were written; video may be empty or unreadable")
 
     first_image = cv2.imread(os.path.join(frames_dir, image_files[0]))
     if first_image is None:
