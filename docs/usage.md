@@ -60,6 +60,28 @@ Results can be exported in a few places. The two **Metrics** page exports produc
   | `*_timeseries.csv` | One row per frame window: per-worm head/mid-body/tail motion over time |
 - **Delete**: remove the job and its outputs.
 
+## Where your data lives
+
+Everything the app writes lives in two places, both of which survive app uninstall and upgrades.
+
+**Outputs directory.** Default location is `Documents/ParaTracker/` on all OSes. Change it via **Settings (⚙)** in the UI; the change takes effect after an app restart. This folder holds:
+
+- `jobs.db` (SQLite): the job history the UI shows.
+- `<job_id>/<timestamp>_<output_name>/`: one folder per job, containing the tracked video, keypoints, motion stats, metadata, and CSV/ZIP exports.
+- `uploads/`: transient staging for in-flight uploads.
+
+The outputs folder is self-contained and portable. Moving it to another drive, or copying it to another machine, takes your entire job history and all results with it.
+
+**Config file.** Stores the `outputs_dir` path and the optional custom `model_path`:
+
+| Platform | Path |
+|---|---|
+| macOS   | `~/Library/Application Support/ParaTracker/config.json` |
+| Windows | `%APPDATA%/ParaTracker/config.json` |
+| Linux   | `~/.config/ParaTracker/config.json` |
+
+Uninstalling the app removes the app itself but leaves the outputs directory and the config file untouched by design, so upgrading (or reinstalling after uninstall) picks up right where you left off. See [Troubleshooting & Uninstalling](troubleshooting.md#uninstalling) for how to remove them when you actually want a clean slate.
+
 ## Keypoints NPZ format
 
 ```python

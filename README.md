@@ -111,7 +111,7 @@ Open **<http://127.0.0.1:5173>**. Full per-OS instructions (prerequisites, comma
 ## Documentation
 
 - **[Installation & Development](docs/install.md)**: prerequisites, per-OS setup (Windows, macOS, Linux), command reference, manual run.
-- **[Using the App](docs/usage.md)**: UI walkthrough, tracking parameters, export options, keypoints NPZ format, CLI usage.
+- **[Using the App](docs/usage.md)**: UI walkthrough, tracking parameters, export options, where your data lives, keypoints NPZ format, CLI usage.
 - **[Building for Distribution](docs/build.md)**: building the macOS DMG and the Windows exe + installer, running a build someone sent you.
 - **[Troubleshooting & Uninstalling](docs/troubleshooting.md)**: common problems and how to remove the app and its data.
 

@@ -56,6 +56,13 @@ UninstallDisplayIcon={app}\{#MyAppExeName}
 ; Program Files requires elevation.
 PrivilegesRequired=admin
 
+; If ParaTracker is running when the user installs or uninstalls, prompt to
+; close it first (otherwise Windows refuses to replace/delete the DLLs in
+; _internal\ and leaves a partial install behind). Yes is the default in
+; recent Inno Setup versions; declared explicitly so intent is obvious.
+CloseApplications=yes
+RestartApplications=no
+
 ; The bundled Python / FFmpeg / native wheels are all 64-bit x86. "x64compatible"
 ; is the modern identifier (Inno Setup 6.3+): it allows install on native x64 and
 ; on ARM64 Windows (which runs x64 binaries under emulation).
