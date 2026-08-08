@@ -10,7 +10,7 @@
 ;   version via /DMyAppVersion and locates ISCC.exe for you).
 ;
 ; Or build the installer by hand, once dist\ParaTracker\ exists:
-;   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=1.4.1 installer\paratracker.iss
+;   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion=1.4.2 installer\paratracker.iss
 ;
 ; The version is defined by CFBundleShortVersionString in worm_tracker.spec
 ; (the single source of truth). build_windows.ps1 reads it from there and
